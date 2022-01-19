@@ -23,4 +23,4 @@ mkdir barcodesplitter
 cd barcodesplitter
 
 ml FASTX-Toolkit
-nl /camp/lab/znamenskiyp/home/shared/projects/turnerb_MAPseq/Sequencing/Processed_data/BRAC5676.1h/trial/unzipped/TUR4405A1_PE.txt |awk '{print ">" $1 "\n" $2}'|fastx_barcode_splitter.pl --bcfile /camp/lab/znamenskiyp/home/shared/projects/turnerb_MAPseq/Sequencing/Reference_files/sample_barcodes.txt --prefix /camp/lab/znamenskiyp/home/shared/projects/turnerb_MAPseq/Sequencing/Processed_data/BRAC5676.1h/trial/unzipped/barcodesplitter/ --eol
+nl /camp/lab/znamenskiyp/home/shared/projects/turnerb_MAPseq/Sequencing/Processed_data/BRAC5676.1h/trial/unzipped/TUR4405A1_PE.txt |awk '{print ">" $1 "\n" $2}'|fastx_barcode_splitter.pl --bcfile /camp/lab/znamenskiyp/home/shared/projects/turnerb_MAPseq/Sequencing/Reference_files/sample_barcodes.txt --prefix /camp/lab/znamenskiyp/home/shared/projects/turnerb_MAPseq/Sequencing/Processed_data/BRAC5676.1h/trial/unzipped/barcodesplitter/ --eol --suffix ".txt"
