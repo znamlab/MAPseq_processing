@@ -4,13 +4,12 @@
 cd /camp/lab/znamenskiyp/home/shared/projects/turnerb_MAPseq/Sequencing/Processed_data/BRAC5676.1h/trial/unzipped/barcodesplitter
 
 #filter out reads with Ns, cut off sample barcodes need to change to for loop when have multiple samples
-awk "NR%2==0" BC5.txt | grep -v N | cut -b 1-50 > TUR4405A1processedBC5.txt
+awk "NR%2==0" BC5.txt | grep -v N | cut -b 1-50 |sort -nr > TUR4405A1processedBC5.txt
 
 mkdir indexes
 #build bowtie index library with your sequences
 ml Bowtie
 
-#bowtie-build -q cd /camp/lab/znamenskiyp/home/shared/projects/turnerb_MAPseq/Sequencing/Processed_data/BRAC5676.1h/trial/unzipped/barcodesplitter/fasta_VBC_seq.txt ${basepath}_indexes/PfastaBC
 #take each sequence and alirgn to other sequences in the index library
 nl TUR4405A1processedBC5.txt | awk '{print ">" $1 "\n" $2}' > TUR4405A1processedBC5_fasta.txt; bowtie-build -q TUR4405A1processedBC5_fasta.txt indexes/BC5fasta; bowtie -v 3 -p 10 -f --best -a indexes/BC5fasta TUR4405A1processedBC5_fasta.txt bowtiealignment1_1.txt
 
