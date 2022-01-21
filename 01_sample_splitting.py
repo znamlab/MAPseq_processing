@@ -5,26 +5,16 @@ verbose = 1  # 0 is silent, 1 prints progress, >2 also prints barcode splitter o
 #Script to take raw data files and split by sample
 os.chdir('/camp/lab/znamenskiyp/home/shared/projects/turnerb_MAPseq/Sequencing/Processed_data/BRAC5676.1h/trial/unzipped')
 
-#strip fastq files and clip sequences
-if verbose:
-    print('Split sequence', flush=True)
-with open('TUR4405A1_1_stripped.txt', 'w') as target:
-    subprocess.run(['awk', r"NR%4==2", 'TUR4405A1_S1_L001_R1_001.fastq'],
-                   stdout=target)  #whole read just sequence
-with open('TUR4405A1_2_stripped.txt', 'w') as target:
-    p1 = subprocess.Popen(['awk', r"NR%4==2", 'TUR4405A1_S1_L001_R2_001.fastq'],
-                          stdout=subprocess.PIPE)
-    p2 = subprocess.Popen(['cut', '-b', '1-30'], stdin=p1.stdout, stdout=target)  #14nt
-    p1.stdout.close()
-    p2.communicate()
-    # UMI + 16nt sample barcode
 
 if verbose:
-    print('Merge reads', flush=True)
-#make a new file that contains only one sequence per sequenced cluster
-with open('TUR4405A1_PE.txt', 'w') as target:
-    subprocess.run(['paste', '-d', '', 'TUR4405A1_1_stripped.txt',
-                    'TUR4405A1_2_stripped.txt'], stdout=target)
+    print('Split sequence and merge reads', flush=True)
+
+with open('TUR4405A1_S1_L001_R1_001.fastq', 'r') as read1, \
+    open('TUR4405A1_S1_L001_R2_001.fastq', 'r') as read2, \
+    open('TUR4405A1_PE.txt', 'w') as target:
+    for il, (r1, r2) in enumerate(zip(read1, read2)):
+        if il % 4 == 1:
+            target.write(r1.strip() + r2[:30] + '\n')
 
 #split dataset according to inline indexes using fastx toolkit; this by default allows up to 1 missmatch. we could go higher if we want, though maybe not neccessary
 if not os.path.isdir('barcodesplitter'):
