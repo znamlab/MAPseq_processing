@@ -1,11 +1,13 @@
 import subprocess
 import os
 
+verbose = 1  # 0 is silent, 1 prints progress, >2 also prints barcode splitter output
 #Script to take raw data files and split by sample
 os.chdir('/camp/lab/znamenskiyp/home/shared/projects/turnerb_MAPseq/Sequencing/Processed_data/BRAC5676.1h/trial/unzipped')
 
 #strip fastq files and clip sequences
-
+if verbose:
+    print('Split sequence', flush=True)
 with open('TUR4405A1_1_stripped.txt', 'w') as target:
     subprocess.run(['awk', r"NR%4==2", 'TUR4405A1_S1_L001_R1_001.fastq'],
                    stdout=target)  #whole read just sequence
@@ -17,6 +19,8 @@ with open('TUR4405A1_2_stripped.txt', 'w') as target:
     p2.communicate()
     # UMI + 16nt sample barcode
 
+if verbose:
+    print('Merge reads', flush=True)
 #make a new file that contains only one sequence per sequenced cluster
 with open('TUR4405A1_PE.txt', 'w') as target:
     subprocess.run(['paste', '-d', '', 'TUR4405A1_1_stripped.txt',
@@ -47,6 +51,22 @@ with open(fasta_seq, 'w') as target:
 # now run barcode splitter on that
 bcfile = '/camp/lab/znamenskiyp/home/shared/projects/turnerb_MAPseq/Sequencing/Reference_files/sample_barcodes.txt'
 prefix = '/camp/lab/znamenskiyp/home/shared/projects/turnerb_MAPseq/Sequencing/Processed_data/BRAC5676.1h/trial/unzipped/barcodesplitter/'
+
+if verbose:
+    print('Barcode splitter', flush=True)
 with open(fasta_seq, 'r') as file_input:
-    subprocess.run(['fastx_barcode_splitter.pl', '--bcfile', bcfile, '--prefix', prefix,
-                    '--eol', '--suffix', '.txt'], stdin=file_input)
+    out = subprocess.run(['fastx_barcode_splitter.pl', '--bcfile', bcfile, '--prefix',
+                          prefix, '--eol', '--suffix', '.txt'], stdin=file_input,
+                         capture_output=True)
+if out.stderr:
+    raise IOError('Barcode splitter raised an error:\n{0}', out.stderr)
+
+log_file = 'barcode_splitter_log.txt'
+with open(log_file, 'wb') as log:
+    log.write(out.stdout)
+
+if verbose > 1:
+    print(out.stdout.decode(), flush=True)
+
+if verbose:
+    print('Sample splitting done')
