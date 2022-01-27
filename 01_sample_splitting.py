@@ -6,6 +6,62 @@ from datetime import datetime
 import gzip
 
 
+def split_samples(acq_id, barcode_file, raw_dir, output_dir, verbose=1, n_mismatch=1,
+                  r1_part=None, r2_part=None):
+    """Split raw fastq data according to sample barcodes
+
+    This unzips raw fastq.gz files, cuts the two reads if needed (using `r1_part` and
+    `r2_part`) and runs fastx_barcode_splitter.
+
+    The output directory will contain a .txt file per barcode and a file named
+    `barcode_splitter_log.txt` containing the summary output from the fastx function.
+
+    Args:
+        acq_id (str): Acquisition ID. Only file starting with this id will be unzipped
+        barcode_file (str or Path): path to the file containing the list of barcodes
+        raw_dir: (str or Path): Path to the folder containing the fastq.gz files. It
+            should contain two files starting with acq_id, one for read 1 with `R1` in
+            its name and one for read 2, with `R2` in its name
+        output_dir (str or Path): [optional] Directory to save the output, if None,
+            will save in the current working directory
+        n_mismatch (int): [optional] number of mismatches accepted. Default to 1
+        r1_part (None or (int, int)): [optional] part of the read 1 sequence to keep,
+            None to keep the full read, [beginning, end] otherwise
+        r2_part (int, int): [optional] same as r1_part but for read 2
+        verbose (int): Level of feedback printed. 0 for nothing, 1 for steps,
+            2 for steps and full output
+
+
+    Returns:
+        None
+    """
+    if verbose:
+        tstart = datetime.now()
+    fastq_files = unzip_fastq(raw_dir, acq_id=acq_id, target_dir=output_dir,
+                              overwrite=False)
+    # make sure we have read1 and read2
+    read_files = dict()
+    for read_number in [1, 2]:
+        good_file = [r for r in fastq_files.keys() if 'R%d' % read_number in r]
+        if not good_file:
+            raise IOError('Could not find read %d file' % read_number)
+        elif len(good_file) > 1:
+            raise IOError('Found multiple files for read %d:\n%s' % (read_number,
+                                                                     good_file))
+        else:
+            read_files[read_number] = fastq_files[good_file[0]]
+    run_bc_splitter(read1_file=read_files[1], read2_file=read_files[2],
+                    barcode_file=barcode_file, n_mismatch=n_mismatch, r1_part=r1_part,
+                    r2_part=r2_part, output_dir=output_dir, verbose=verbose)
+    # remove fastq files:
+    for f in fastq_files.values():
+        os.remove(f)
+
+    if verbose:
+        tend = datetime.now()
+        print('That took %s' % (tend - tstart), flush=True)
+
+
 def unzip_fastq(source_dir, acq_id, target_dir=None, overwrite=False, verbose=1):
     """Unzip fastq.gz files
 
@@ -46,7 +102,7 @@ def unzip_fastq(source_dir, acq_id, target_dir=None, overwrite=False, verbose=1)
     return out_files
 
 
-def split_samples(read1_file, read2_file, barcode_file, n_mismatch=1, r1_part=None,
+def run_bc_splitter(read1_file, read2_file, barcode_file, n_mismatch=1, r1_part=None,
                   r2_part=None, output_dir=None, verbose=1):
     """Split samples using Barcode splitter
 
@@ -126,38 +182,19 @@ def split_samples(read1_file, read2_file, barcode_file, n_mismatch=1, r1_part=No
     os.remove(temp_file)
 
 
+
+
+
 if __name__ == '__main__':
-    tstart = datetime.now()
     verbose = 1  # 0 is silent, 1 prints progress, >2 also prints barcode splitter output
     # Script to take raw data files and split by sample
-    old_dir =        '/camp/lab/znamenskiyp/home/shared/projects/turnerb_MAPseq/Sequencing/Processed_data/BRAC5676.1h/trial/unzipped'
 
     camp_root = pathlib.Path('/camp/lab/znamenskiyp/home/shared/projects/turnerb_MAPseq')
-    raw_dir = camp_root / 'Sequencing/Raw_data/BRAC5676.1h/trial/fastq'
-    processed_dir = camp_root / 'Sequencing/Processed_data/BRAC5676.1h/trial/temp_test'
-    acq_id = 'TUR4405A1'
-    fastq_files = unzip_fastq(raw_dir, acq_id=acq_id, target_dir=processed_dir,
-                              overwrite=False)
+    raw = camp_root / 'Sequencing/Raw_data/BRAC5676.1h/trial/fastq'
+    out_dir = camp_root / 'Sequencing/Processed_data/BRAC5676.1h/trial/temp_test'
+    acqid = 'TUR4405A1'
     barcodes = camp_root / 'Sequencing/Reference_files/sample_barcodes.txt'
-    # make sure we have read1 and read2
-    read_files = dict()
-    for read_number in [1, 2]:
-        good_file = [r for r in fastq_files.keys() if 'R%d' % read_number in r]
-        if not good_file:
-            raise IOError('Could not find read %d file' % read_number)
-        elif len(good_file) > 1:
-            raise IOError('Found multiple files for read %d:\n%s' % (read_number,
-                                                                     good_file))
-        else:
-            read_files[read_number] = fastq_files[good_file[0]]
 
-    split_samples(read1_file=read_files[1], read2_file=read_files[2],
-                  barcode_file=barcodes, n_mismatch=1, r1_part=None, r2_part=[0, 30],
-                  output_dir=processed_dir, verbose=1)
-
-    # remove fastq files:
-    for f in fastq_files.values():
-        os.remove(f)
-    tend = datetime.now()
-    print('That took %s' % (tend - tstart))
+    split_samples(raw_dir=raw, output_dir=out_dir, acq_id=acqid, barcode_file=barcodes,
+                  n_mismatch=1, r1_part=None, r2_part=(0,30), verbose=1)
 
