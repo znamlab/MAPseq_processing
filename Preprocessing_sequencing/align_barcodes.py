@@ -2,10 +2,10 @@ import subprocess
 import os
 import pandas as pd
 
-directory = '/camp/lab/znamenskiyp/home/shared/projects/turnerb_MAPseq/Sequencing/Processed_data/BRAC5676.1h/trial/unzipped1/barcodesplitter/sorting'
-os.chdir(directory)
-if not os.path.isdir('indexes'):
-    os.mkdir('indexes')
+#directory = '/camp/lab/znamenskiyp/home/shared/projects/turnerb_MAPseq/Sequencing/Processed_data/BRAC5676.1h/trial/unzipped1/barcodesplitter/sorting'
+#os.chdir(directory)
+#if not os.path.isdir('indexes'):
+#    os.mkdir('indexes')
 
 def collapsedUMIbarcode(directory):
     """

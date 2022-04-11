@@ -63,4 +63,4 @@ def restructurebowtie(directory):
                 open(fileoutput, 'w') as target:
                 for x in f.readlines():
                     target.write(x.split('\t')[0] + ' ' + x.split('\t')[2] + '\n')
-    print('Finished aligning UMI's)
+    print("Finished aligning UMI's")

@@ -38,11 +38,11 @@ def sortUMIs(directory, minUMI):
             plt.figure()
             plt.xlabel('Sequence Rank')
             plt.ylabel('UMI counts')
-            plt.title('UMI Distribution for %s') % barcodenum_nosuff
+            plt.title('UMI Distribution for %s' %barcodenum_nosuff)
             l=  len(UMI_final)
             x = list(range(0, l))
             plt.semilogy(x, UMI_final['UMI_frequency'])
-            figname = 'sorting/UMIplot_%s.png' % barcodenum_nosuff
+            figname = 'sorting/UMIplot_%s.png' %barcodenum_nosuff
             plt.savefig(figname)
 
     #take actual barcode sequences and put with lines for each UMI listed
@@ -55,6 +55,6 @@ def sortUMIs(directory, minUMI):
             barcode_seq['line'] = line
             barcode_seq['sequence'] = sequence
             UMI_final['sequence'] = UMI_final.line.map(barcode_seq.sequence)
-            tosave = 'sorting/UMIgroups_%s.csv' % barcodenum_nosuff
+            tosave = 'sorting/UMIgroups_%s.csv' %barcodenum_nosuff
             UMI_final.to_csv(tosave)
     print("finished sorting the UMI's")

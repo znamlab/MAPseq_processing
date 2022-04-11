@@ -4,8 +4,8 @@ import matplotlib.pyplot as plt
 import networkx as nx
 from networkx import (draw, DiGraph, Graph)
 
-directory = '/camp/lab/znamenskiyp/home/shared/projects/turnerb_MAPseq/Sequencing/Processed_data/BRAC5676.1h/trial/unzipped1/barcodesplitter/sorting'
-os.chdir(directory)
+#directory = '/camp/lab/znamenskiyp/home/shared/projects/turnerb_MAPseq/Sequencing/Processed_data/BRAC5676.1h/trial/unzipped1/barcodesplitter/sorting'
+#os.chdir(directory)
 
 def barcodecollapsing(directory, minbarcode):
     """
@@ -41,8 +41,8 @@ def barcodecollapsing(directory, minbarcode):
             n, bins, patches = plt.hist(freq, color='steelblue', edgecolor='none', bins='auto', log=True)
             plt.xlabel('Copies of Barcode')
             plt.ylabel('Frequency')
-            plt.title('Neuron Barcode Distribution for %s') % barcodenum_nosuff
-            figname = 'sorting/barcodeplot_%s.png' % barcodenum_nosuff
+            plt.title('Neuron Barcode Distribution for %s' %barcodenum_nosuff)
+            figname = 'sorting/barcodeplot_%s.png' %barcodenum_nosuff
             plt.savefig(figname)
 
             barcodedir = 'FASTA_UMIcollapsed_%s' % barcodenum
