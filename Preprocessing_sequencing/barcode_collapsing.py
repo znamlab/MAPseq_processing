@@ -18,6 +18,7 @@ def barcodecollapsing(directory, minbarcode):
     directory = barcode sorting folder where bowtie output is.
     minbarcode = threshold of barcode counts to call barcode real or not. Put as 0 if no thresholding
     """
+    os.chdir(directory + '/sorting')
     for barcodefile in os.listdir(directory):
         if barcodefile.startswith("out_barcode_"):
             alignedbarcode = np.loadtxt(barcodefile, dtype=int);

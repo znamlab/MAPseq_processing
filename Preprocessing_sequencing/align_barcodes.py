@@ -11,6 +11,9 @@ def collapsedUMIbarcode(directory):
     """
     Function to take line numbers for collapsed UMIs and generate a FASTA format for sequences
     """
+    os.chdir(directory + '/sorting')
+    if not os.path.isdir('indexes'):
+        os.mkdir('indexes')
     for barcodefile in os.listdir(directory):
         if barcodefile.startswith("UMIgroups_"):
             UMI_final = pd.read_csv(barcodefile)

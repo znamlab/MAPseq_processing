@@ -5,10 +5,6 @@ import networkx as nx
 from networkx import (draw, DiGraph, Graph)
 import os
 
-os.chdir('/camp/lab/znamenskiyp/home/shared/projects/turnerb_MAPseq/Sequencing/Processed_data/BRAC5676.1h/trial/unzipped1/barcodesplitter')
-directory = '/camp/lab/znamenskiyp/home/shared/projects/turnerb_MAPseq/Sequencing/Processed_data/BRAC5676.1h/trial/unzipped1/barcodesplitter'
-if not os.path.isdir('sorting'):
-    os.mkdir('sorting')
 
 def sortUMIs(directory, minUMI):
     """
@@ -21,6 +17,10 @@ def sortUMIs(directory, minUMI):
     directory = where everything is
     minUMI = minimum UMI count (set to zero if don't want to threshold)
     """
+    os.chdir(directory)
+    if not os.path.isdir('sorting'):
+        os.mkdir('sorting')
+
     for barcodefile in os.listdir(directory):
         if barcodefile.startswith("out"):
             alignedUMI = np.loadtxt(barcodefile, dtype=int);
