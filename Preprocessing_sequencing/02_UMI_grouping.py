@@ -42,7 +42,7 @@ def UMI_bowtie(directory):
         print('Bowtie alignment starting', flush=True)
 
     for barcodefile in os.listdir(directory):
-        if barcodefile.startswith("procesed_"):
+        if barcodefile.startswith("processed_"):
             barcodenum = barcodefile.split('processed_', 1)[1]
             suffix = '.txt'
             barcodenum_nosuff = barcodenum[:-len(suffix)]
