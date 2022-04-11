@@ -11,10 +11,11 @@ def collapsedUMIbarcode(directory):
     """
     Function to take line numbers for collapsed UMIs and generate a FASTA format for sequences
     """
-    os.chdir(directory + '/sorting')
+    path = directory / 'sorting'
+    os.chdir(path)
     if not os.path.isdir('indexes'):
         os.mkdir('indexes')
-    for barcodefile in os.listdir(directory):
+    for barcodefile in os.listdir(path):
         if barcodefile.startswith("UMIgroups_"):
             UMI_final = pd.read_csv(barcodefile)
             sequences = UMI_final['sequence']
@@ -32,10 +33,11 @@ def bowtiebarcodes(directory):
     """
     Function to loop through each FASTA file and perform bowtie alignment
     """
+    path = directory / 'sorting'
     verbose = 1
     if verbose:
         print('Bowtie starting', flush=True)
-    for barcodefile in os.listdir(directory):
+    for barcodefile in os.listdir(path):
         if barcodefile.startswith("FASTA_UMIcollapsed_"):
             barcodenum = barcodefile.split('FASTA_UMIcollapsed_', 1)[1]
             suffix = '.txt'
@@ -46,7 +48,7 @@ def bowtiebarcodes(directory):
             bowtie = subprocess.run(['bowtie', '-v', '3', '-p', '10', '-f', '--best', '-a', index, barcodefile, newfile], capture_output=True)
 
     #take first and third fields of bowtie alignments as output for next steps
-    for alignment in os.listdir(directory):
+    for alignment in os.listdir(path):
         if alignment.startswith("barcode_bowtiealignment_"):
             fileoutput = 'out_%s' % alignment
             with open (alignment,'r') as f, \

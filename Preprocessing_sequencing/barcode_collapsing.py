@@ -3,6 +3,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 import networkx as nx
 from networkx import (draw, DiGraph, Graph)
+import subprocess
+import os
 
 #directory = '/camp/lab/znamenskiyp/home/shared/projects/turnerb_MAPseq/Sequencing/Processed_data/BRAC5676.1h/trial/unzipped1/barcodesplitter/sorting'
 #os.chdir(directory)
@@ -18,8 +20,9 @@ def barcodecollapsing(directory, minbarcode):
     directory = barcode sorting folder where bowtie output is.
     minbarcode = threshold of barcode counts to call barcode real or not. Put as 0 if no thresholding
     """
-    os.chdir(directory + '/sorting')
-    for barcodefile in os.listdir(directory):
+    path = directory / 'sorting'
+    os.chdir(path)
+    for barcodefile in os.listdir(path):
         if barcodefile.startswith("out_barcode_"):
             alignedbarcode = np.loadtxt(barcodefile, dtype=int);
             G=nx.Graph()
