@@ -45,7 +45,7 @@ def barcodecollapsing(directory, minbarcode):
             plt.xlabel('Copies of Barcode')
             plt.ylabel('Frequency')
             plt.title('Neuron Barcode Distribution for %s' %barcodenum_nosuff)
-            figname = 'sorting/barcodeplot_%s.png' %barcodenum_nosuff
+            figname = 'barcodeplot_%s.png' %barcodenum_nosuff
             plt.savefig(figname)
 
             barcodedir = 'FASTA_UMIcollapsed_%s' % barcodenum
