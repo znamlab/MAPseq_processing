@@ -11,4 +11,3 @@ For pre-processing MAPseq datasets, use the main.sh script to call individual py
 Sample barcode sequences are specified in pre-processing as a txt file for reference.
 
 
-N.B. still need to make into functions
