@@ -6,12 +6,16 @@
 echo "Loading modules"
 ml Anaconda3
 ml FASTX-Toolkit
+ml Bowtie
 source /camp/apps/eb/software/Anaconda/conda.env.sh
 
-echo "Activating environement"
-conda activate flexenv
+#need to make a camp env
+#echo "Activating environment"
+#conda activate flexenv
 
-echo "Splitting samples"
-python 01_sample_splitting.py
+echo "Running MAPseq preprocessing"
+python Call_functions.py
+
+
 
 echo "Done"
