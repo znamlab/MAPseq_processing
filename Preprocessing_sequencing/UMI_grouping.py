@@ -17,12 +17,12 @@ def combineL00(directory):
                     file_paths[f] = []
                 file_paths[f].append(root)
     for f, paths in file_paths.items():
-    txt = []
-    for p in paths:
-        with open(os.path.join(p, f)) as f2:
-            txt.append(f2.read())
-    with open(f, 'w') as f3:
-        f3.write(''.join(txt))
+        txt = []
+        for p in paths:
+            with open(os.path.join(p, f)) as f2:
+                txt.append(f2.read())
+        with open(f, 'w') as f3:
+            f3.write(''.join(txt))
 
 
 def groupingUMI_restructure(directory):
