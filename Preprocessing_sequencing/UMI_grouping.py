@@ -2,7 +2,28 @@ import subprocess
 import os
 
 
-directory = '/camp/lab/znamenskiyp/home/shared/projects/turnerb_MAPseq/Sequencing/Processed_data/BRAC5676.1h/trial/unzipped1/barcodesplitter'
+#directory = '/camp/lab/znamenskiyp/home/shared/projects/turnerb_MAPseq/Sequencing/Processed_data/BRAC5676.1h/trial/unzipped1/barcodesplitter'
+
+def combineL00(directory):
+    """
+    Function to concanate L00 in from sequencing platform output so all sample sequences in same txt file.
+    """
+    os.chdir(directory)
+    file_paths = {}
+    for root, dirs, files in os.walk('.'):
+        for f in files:
+            if f.endswith('.txt'):
+                if f not in file_paths:
+                    file_paths[f] = []
+                file_paths[f].append(root)
+    for f, paths in file_paths.items():
+    txt = []
+    for p in paths:
+        with open(os.path.join(p, f)) as f2:
+            txt.append(f2.read())
+    with open(f, 'w') as f3:
+        f3.write(''.join(txt))
+
 
 def groupingUMI_restructure(directory):
 
