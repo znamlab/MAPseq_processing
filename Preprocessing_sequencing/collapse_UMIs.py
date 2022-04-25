@@ -24,13 +24,16 @@ def sortUMIs(directory, minUMI):
     for barcodefile in os.listdir(directory):
         if barcodefile.startswith("out"):
             alignedUMI = np.loadtxt(barcodefile, dtype=int);
-            G=nx.Graph()
-            G.add_edges_from(alignedUMI)
-            UMIs =(sorted(nx.connected_components(G), key = len, reverse=True))
-            UMI_sorted = pd.DataFrame(columns=['line', 'UMI_frequency'])
-            for i in UMIs:
-                UMI_sorted = UMI_sorted.append({'line': (min(i)), 'UMI_frequency': (len(i))},ignore_index=True)
-
+            if alignedUMI.ndim>1: #does not compute the nodes of graph if only one barcode in sample
+                G=nx.Graph()
+                G.add_edges_from(alignedUMI)
+                UMIs =(sorted(nx.connected_components(G), key = len, reverse=True))
+                UMI_sorted = pd.DataFrame(columns=['line', 'UMI_frequency'])
+                for i in UMIs:
+                    UMI_sorted = UMI_sorted.append({'line': (min(i)), 'UMI_frequency': (len(i))},ignore_index=True)
+            if alignedUMI.ndim==1: #just takes the line for samples containing only one barcode
+                UMI_sorted =pd.DataFrame(columns=['line', 'UMI_frequency'])
+                UMI_sorted = UMI_sorted.append({'line': (alignedUMI[1]), 'UMI_frequency':(1)},ignore_index=True)
             UMI_final = UMI_sorted[UMI_sorted.UMI_frequency >minUMI]
             barcodenum = barcodefile.split('out_bowtiealignment_', 1)[1]
             suffix = '.txt'
