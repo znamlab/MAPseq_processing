@@ -9,6 +9,29 @@ import os
 #directory = '/camp/lab/znamenskiyp/home/shared/projects/turnerb_MAPseq/Sequencing/Processed_data/BRAC5676.1h/trial/unzipped1/barcodesplitter/sorting'
 #os.chdir(directory)
 
+def get_int_bc(bclist, bowtieoutput):
+    """
+    Function to get most common barcode sequence from collapsed barcode list.
+    This is to avoid taking barcode sequences that don't represent the majority (and so don't match across samples)
+    Function iterates through bowtie output for list of connected components to locate component with fewest mismatches
+    Because often several sequences have share the minimum number of mismatches (as they're the same sequence),
+    Thus, the output returns  the lowest FASTA line number corresponding min mismatch number
+
+    """
+    file_to_read = bowtieoutput[4:]
+    bc_seq = pd.read_csv(file_to_read, delimiter = "\t", header=None)
+    bc_seq = bc_seq.rename(columns={0: "barcode", 7: "mismatch"})
+    seq_tab = pd.DataFrame(columns=['barcode', 'sum'])
+    for number in bclist:
+        newlist = bc_seq.loc[bc_seq['barcode'] == number, 'mismatch']
+        if not newlist.isnull().all():
+            newlist = newlist.str.len()
+        tot = newlist.fillna(0)
+        seq_tab = seq_tab.append({'barcode': number, 'sum': sum(tot)},ignore_index=True)
+    return min(seq_tab.loc[seq_tab['sum'] == min(seq_tab['sum']), 'barcode'])
+
+
+
 def barcodecollapsing(directory, minbarcode):
     """
     Function to collapse matched barcodes from bowtie output.
@@ -24,22 +47,32 @@ def barcodecollapsing(directory, minbarcode):
     os.chdir(path)
     for barcodefile in os.listdir(path):
         if barcodefile.startswith("out_barcode_"):
+            f_size = os.path.getsize(barcodefile)
             barcodenum = barcodefile.split('out_barcode_bowtiealignment_', 1)[1]
             suffix = '.txt'
             barcodenum_nosuff = barcodenum[:-len(suffix)]
-            if not os.path.isfile('final_barcodes_%s' %barcodenum):
-                alignedbarcode = np.loadtxt(barcodefile, dtype=int);
+            print('Loading barcodefile. %s' %
+                  datetime.datetime.now().strftime('%H:%M:%S'), flush=True)
+            alignedbarcode = np.loadtxt(barcodefile, dtype=int);
+            if f_size == 0:
+                print('%s is empty' %barcodefile)
+            if alignedbarcode.ndim==1:
+                print ('%s is ndims too small' %barcodefile)
+            if alignedbarcode.ndim>1:
+                #if not os.path.isfile('final_barcodes_%s' %barcodenum):
+                print('starting collapsing BC %s. %s' % (barcodenum,
+                                                         datetime.datetime.now().strftime('%H:%M:%S')),
+                      flush=True)
                 G=nx.Graph()
                 G.add_edges_from(alignedbarcode)
-                barcodes =(sorted(nx.connected_components(G), key = len, reverse=True))
-                barcode_sorted = pd.DataFrame(columns=['line', 'barcode_frequency'])
-                for i in barcodes:
-                    barcode_sorted = barcode_sorted.append({'line': (min(i)), 'barcode_frequency': (len(i))},ignore_index=True)
+                print('Connected componenets. %s' % (
+                    datetime.datetime.now().strftime('%H:%M:%S')),
+                      flush=True)
+                barcodes_freq = map(lambda x: (get_int_bc(x, barcodefile), len(x)), nx.connected_components(G))#add on...
     #if you want a minimum threshold to barcode occurance change the number
-                minbarcode = 0
-                barcode_final = barcode_sorted[barcode_sorted.barcode_frequency >minbarcode]
-
-
+                barcodes_sorted= pd.DataFrame(barcodes_freq)
+                barcodes_sorted= barcodes_sorted.rename(columns={0: "barcode", 1: "frequency"})
+                barcode_final = barcodes_sorted[barcodes_sorted.frequency >minbarcode]
     #plot histogram for frequency distribution
                 freq = barcode_sorted.barcode_frequency
                 n, bins, patches = plt.hist(freq, color='steelblue', edgecolor='none', bins='auto', log=True)
