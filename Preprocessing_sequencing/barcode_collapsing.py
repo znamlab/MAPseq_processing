@@ -9,15 +9,16 @@ import os
 #directory = '/camp/lab/znamenskiyp/home/shared/projects/turnerb_MAPseq/Sequencing/Processed_data/BRAC5676.1h/trial/unzipped1/barcodesplitter/sorting'
 #os.chdir(directory)
 
-def get_int_bc(bclist, bowtieoutput):
+def get_bc_democracy(bclist, bowtieoutput):
     """
     Function to get most common barcode sequence from collapsed barcode list.
     This is to avoid taking barcode sequences that don't represent the majority (and so don't match across samples)
     Function iterates through bowtie output for list of connected components to locate component with fewest mismatches
-    Because often several sequences have share the minimum number of mismatches (as they're the same sequence),
+    Often several sequences have share the minimum number of mismatches (as they're the same sequence),
     Thus, the output returns  the lowest FASTA line number corresponding min mismatch number
 
     """
+    all_bc_dictlist = []
     file_to_read = bowtieoutput[4:]
     bc_seq = pd.read_csv(file_to_read, delimiter = "\t", header=None)
     bc_seq = bc_seq.rename(columns={0: "barcode", 7: "mismatch"})
@@ -27,9 +28,11 @@ def get_int_bc(bclist, bowtieoutput):
         if not newlist.isnull().all():
             newlist = newlist.str.len()
         tot = newlist.fillna(0)
-        seq_tab = seq_tab.append({'barcode': number, 'sum': sum(tot)},ignore_index=True)
-    return min(seq_tab.loc[seq_tab['sum'] == min(seq_tab['sum']), 'barcode'])
+        barcodedict = {'barcode': number, 'sum': sum(tot)}
+        all_bc_dictlist.append(barcodedict)
+        seq_tab = pd.DataFrame.from_dict(all_bc_dictlist)
 
+    return min(seq_tab.loc[seq_tab['sum'] == min(seq_tab['sum']), 'barcode'])
 
 
 def barcodecollapsing(directory, minbarcode):
@@ -51,8 +54,7 @@ def barcodecollapsing(directory, minbarcode):
             barcodenum = barcodefile.split('out_barcode_bowtiealignment_', 1)[1]
             suffix = '.txt'
             barcodenum_nosuff = barcodenum[:-len(suffix)]
-            print('Loading barcodefile. %s' %
-                  datetime.datetime.now().strftime('%H:%M:%S'), flush=True)
+            print('Loading barcodefile. %s' %barcodefile, flush=True)
             alignedbarcode = np.loadtxt(barcodefile, dtype=int);
             if f_size == 0:
                 print('%s is empty' %barcodefile)
@@ -65,12 +67,10 @@ def barcodecollapsing(directory, minbarcode):
                       flush=True)
                 G=nx.Graph()
                 G.add_edges_from(alignedbarcode)
-                print('Connected componenets. %s' % (
+                print('Connected componenets %s %s' % (barcodenum,
                     datetime.datetime.now().strftime('%H:%M:%S')),
-                      flush=True)
-                barcodes_freq = map(lambda x: (get_int_bc(x, barcodefile), len(x)), nx.connected_components(G))#add on...
-    #if you want a minimum threshold to barcode occurance change the number
-                barcodes_sorted= pd.DataFrame(barcodes_freq)
+                        flush=True)
+                barcodes_sorted= pd.DataFrame(map(lambda x: (get_bc_democracy(x, barcodefile), len(x)), nx.connected_components(G)))
                 barcodes_sorted= barcodes_sorted.rename(columns={0: "barcode", 1: "frequency"})
                 barcode_final = barcodes_sorted[barcodes_sorted.frequency >minbarcode]
     #plot histogram for frequency distribution
