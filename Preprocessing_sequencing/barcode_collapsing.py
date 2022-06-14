@@ -9,7 +9,7 @@ import os
 #directory = '/camp/lab/znamenskiyp/home/shared/projects/turnerb_MAPseq/Sequencing/Processed_data/BRAC5676.1h/trial/unzipped1/barcodesplitter/sorting'
 #os.chdir(directory)
 
-def get_bc_democracy(bclist, bowtieoutput):
+def get_bc_democracy(bclist):
     """
     Function to get most common barcode sequence from collapsed barcode list.
     This is to avoid taking barcode sequences that don't represent the majority (and so don't match across samples)
@@ -19,9 +19,6 @@ def get_bc_democracy(bclist, bowtieoutput):
 
     """
     all_bc_dictlist = []
-    file_to_read = bowtieoutput[4:]
-    bc_seq = pd.read_csv(file_to_read, delimiter = "\t", header=None)
-    bc_seq = bc_seq.rename(columns={0: "barcode", 7: "mismatch"})
     seq_tab = pd.DataFrame(columns=['barcode', 'sum'])
     for number in bclist:
         newlist = bc_seq.loc[bc_seq['barcode'] == number, 'mismatch']
@@ -70,7 +67,9 @@ def barcodecollapsing(directory, minbarcode):
                 print('Connected componenets %s %s' % (barcodenum,
                     datetime.datetime.now().strftime('%H:%M:%S')),
                         flush=True)
-                barcodes_sorted= pd.DataFrame(map(lambda x: (get_bc_democracy(x, barcodefile), len(x)), nx.connected_components(G)))
+                bc_seq = pd.read_csv(barcodefile[4:], delimiter = "\t", header=None)
+                bc_seq = bc_seq.rename(columns={0: "barcode", 7: "mismatch"})
+                barcodes_sorted= pd.DataFrame(map(lambda x: (get_bc_democracy(x), len(x)), nx.connected_components(G)))
                 barcodes_sorted= barcodes_sorted.rename(columns={0: "barcode", 1: "frequency"})
                 barcode_final = barcodes_sorted[barcodes_sorted.frequency >minbarcode]
     #plot histogram for frequency distribution
