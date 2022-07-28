@@ -9,13 +9,13 @@ import os
 #directory = '/camp/lab/znamenskiyp/home/shared/projects/turnerb_MAPseq/Sequencing/Processed_data/BRAC5676.1h/trial/unzipped1/barcodesplitter/sorting'
 #os.chdir(directory)
 
-def get_bc_democracy(bclist):
+def get_bc_democracy(bclist, bc_seq):
     """
     Function to get most common barcode sequence from collapsed barcode list.
     This is to avoid taking barcode sequences that don't represent the majority (and so don't match across samples)
     Function iterates through bowtie output for list of connected components to locate component with fewest mismatches
     Often several sequences have share the minimum number of mismatches (as they're the same sequence),
-    Thus, the output returns  the lowest FASTA line number corresponding min mismatch number
+    Thus, the output returns  the lowest FASTA line number with min mismatch number
 
     """
     all_bc_dictlist = []
@@ -58,22 +58,17 @@ def barcodecollapsing(directory, minbarcode):
             if alignedbarcode.ndim==1:
                 print ('%s is ndims too small' %barcodefile)
             if alignedbarcode.ndim>1:
-                #if not os.path.isfile('final_barcodes_%s' %barcodenum):
-                print('starting collapsing BC %s. %s' % (barcodenum,
-                                                         datetime.datetime.now().strftime('%H:%M:%S')),
-                      flush=True)
+                print('Starting collapsing %s' % barcodenum, flush=True)
                 G=nx.Graph()
                 G.add_edges_from(alignedbarcode)
-                print('Connected componenets %s %s' % (barcodenum,
-                    datetime.datetime.now().strftime('%H:%M:%S')),
-                        flush=True)
+                print('Connected components %s' % barcodenum, flush=True)
                 bc_seq = pd.read_csv(barcodefile[4:], delimiter = "\t", header=None)
                 bc_seq = bc_seq.rename(columns={0: "barcode", 7: "mismatch"})
-                barcodes_sorted= pd.DataFrame(map(lambda x: (get_bc_democracy(x), len(x)), nx.connected_components(G)))
+                barcodes_sorted= pd.DataFrame(map(lambda x: (get_bc_democracy(x, bc_seq), len(x)), nx.connected_components(G)))
                 barcodes_sorted= barcodes_sorted.rename(columns={0: "barcode", 1: "frequency"})
                 barcode_final = barcodes_sorted[barcodes_sorted.frequency >minbarcode]
     #plot histogram for frequency distribution
-                freq = barcode_sorted.barcode_frequency
+                freq = barcodes_sorted.frequency
                 n, bins, patches = plt.hist(freq, color='steelblue', edgecolor='none', bins='auto', log=True)
                 plt.xlabel('Copies of Barcode')
                 plt.ylabel('Frequency')
