@@ -6,7 +6,7 @@ from datetime import datetime
 import gzip
 
 
-def split_samples(acq_id, barcode_file, raw_dir, output_dir, verbose=1, n_mismatch=1,
+def split_samples(acq_id, barcode_file, raw_dir, output_dir, verbose=1, n_mismatch=2,
                   r1_part=None, r2_part=None):
     """Split raw fastq data according to sample barcodes
 
@@ -38,7 +38,7 @@ def split_samples(acq_id, barcode_file, raw_dir, output_dir, verbose=1, n_mismat
     if verbose:
         tstart = datetime.now()
     fastq_files = unzip_fastq(raw_dir, acq_id=acq_id, target_dir=output_dir,
-                              overwrite=False)
+                              overwrite=True)
     # make sure we have read1 and read2
     read_files = dict()
     for read_number in [1, 2]:
@@ -62,7 +62,7 @@ def split_samples(acq_id, barcode_file, raw_dir, output_dir, verbose=1, n_mismat
         print('That took %s' % (tend - tstart), flush=True)
 
 
-def unzip_fastq(source_dir, acq_id, target_dir=None, overwrite=False, verbose=1):
+def unzip_fastq(source_dir, acq_id, target_dir=None, overwrite=True, verbose=1):
     """Unzip fastq.gz files
 
     Args:
@@ -102,7 +102,7 @@ def unzip_fastq(source_dir, acq_id, target_dir=None, overwrite=False, verbose=1)
     return out_files
 
 
-def run_bc_splitter(read1_file, read2_file, barcode_file, n_mismatch=1, r1_part=None,
+def run_bc_splitter(read1_file, read2_file, barcode_file, n_mismatch=2, r1_part=None,
                   r2_part=None, output_dir=None, verbose=1):
     """Split samples using Barcode splitter
 
@@ -190,11 +190,10 @@ if __name__ == '__main__':
     # Script to take raw data files and split by sample
 
     camp_root = pathlib.Path('/camp/lab/znamenskiyp/home/shared/projects/turnerb_MAPseq')
-    raw = camp_root / 'Sequencing/Raw_data/BRAC5676.1h/trial/fastq'
-    out_dir = camp_root / 'Sequencing/Processed_data/BRAC5676.1h/trial/temp_test'
-    acqid = 'TUR4405A1'
+    raw = camp_root / 'Sequencing/Raw_data/FIAA32.6a'
+    out_dir = camp_root / 'Sequencing/Processed_data/FIAA32.6a'
+    acqid = 'TUR5514A2'
     barcodes = camp_root / 'Sequencing/Reference_files/sample_barcodes.txt'
 
     split_samples(raw_dir=raw, output_dir=out_dir, acq_id=acqid, barcode_file=barcodes,
-                  n_mismatch=1, r1_part=None, r2_part=(0,30), verbose=1)
-
+                  n_mismatch=2, r1_part=(0,32), r2_part=(0,30), verbose=1)
