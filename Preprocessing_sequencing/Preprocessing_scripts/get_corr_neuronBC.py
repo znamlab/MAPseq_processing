@@ -143,16 +143,31 @@ def combine_the_chunks(directory, outdirectory, barcodefile):
         directory (.csv): location of where the files are
         barcodefile (BC... string): which one you want to look at (can this make to read from list, but at the moment, it's taking a while to process chunks in prev steps, so can't do them all)
     """
+    os.chdir(directory)
+    umicombined =pd.DataFrame(columns=['Unnamed: 0', 'corrected_umi'])
+    bccombined =pd.DataFrame(columns=['Unnamed: 0', 'corrected_neuronBC'])
     for file in os.listdir(directory):
-        umicombined =pd.DataFrame(columns=['Unnamed: 0', 'corrected_umi'])
-        bccombined =pd.DataFrame(columns=['Unnamed: 0', 'corrected_neuronBC'])
         if file.startswith('neuronBCcorrected_NeuronBCintermediate_%s' %barcodefile):
             barcodenumbers= file.split('neuronBCcorrected_NeuronBCintermediate_', 1)
             barcodenumbers=barcodenumbers[1][:-len('.csv')]
-            umifile = 'UMIs_corrected_UMIintermediate_%s.csv' %barcodenumbers
-            umicombined = pd.concat([umicombined, pd.read_csv(file)])
-            bccombined =pd.concat([bccombined, pd.read_csv(umifile)])
-
+            umifiletoread = 'UMIs_corrected_UMIintermediate_%s.csv' %barcodenumbers
+            umicombined = pd.concat([umicombined, pd.read_csv(umifiletoread)])
+            bccombined =pd.concat([bccombined, pd.read_csv(file)])
+    combined = pd.concat([bccombined, umicombined], axis=1)
+    combined['combined']=combined['corrected_neuronBC']+combined['corrected_umi']
+    spikein= combined[combined['combined'].str.contains('^.{24}ATCAGTCA')== True].rename_axis('sequence')
+    neurons= combined[combined['combined'].str.contains('^.{30}[CT][CT]')== True].rename_axis('sequence')
+    neuroncounts= neurons['combined'].value_counts().rename_axis('sequence').reset_index(name='counts')
+    counts_spike = spikein['combined'].value_counts().rename_axis('sequence').reset_index(name='counts')
+    counts_spike['barcode'] = counts_spike['sequence'].str[:32]
+    neuroncounts['barcode'] = neuroncounts['sequence'].str[:32]
+    spikeneuron =counts_spike['barcode'].value_counts().rename_axis('sequence').reset_index(name='counts')
+    neuroncounts = neuroncounts['barcode'].value_counts().rename_axis('sequence').reset_index(name='counts')
+    os.chdir(outdirectory)
+    tosaveBC = 'neuroncounts_%s.csv' % barcode
+    tosavespike = 'spikecounts_%s.csv' % barcode
+    
+    
 def combineUMIandBC(directory, barcode, outdir, barcodefilerange=96):
     """
     Function to combine corrected barcodes and UMI's for each read and collect value counts.
