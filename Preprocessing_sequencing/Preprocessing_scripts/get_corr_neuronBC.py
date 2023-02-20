@@ -159,51 +159,94 @@ def combine_the_chunks(directory, outdirectory, barcodefile):
     neurons= combined[combined['combined'].str.contains('^.{30}[CT][CT]')== True].rename_axis('sequence')
     neuroncounts= neurons['combined'].value_counts().rename_axis('sequence').reset_index(name='counts')
     counts_spike = spikein['combined'].value_counts().rename_axis('sequence').reset_index(name='counts')
+    #only take umi counts greater or equal to 2
+    neuroncounts = neuroncounts[neuroncounts['counts']>=2]
+    counts_spike = counts_spike[counts_spike['counts']>=2]
     counts_spike['barcode'] = counts_spike['sequence'].str[:32]
     neuroncounts['barcode'] = neuroncounts['sequence'].str[:32]
     spikeneuron =counts_spike['barcode'].value_counts().rename_axis('sequence').reset_index(name='counts')
     neuroncounts = neuroncounts['barcode'].value_counts().rename_axis('sequence').reset_index(name='counts')
     os.chdir(outdirectory)
-    tosaveBC = 'neuroncounts_%s.csv' % barcode
-    tosavespike = 'spikecounts_%s.csv' % barcode
+    print('finished processing %s' %barcodefile, flush=True)
+    tosaveBC = 'neuroncounts_%s.csv' % barcodefile
+    tosavespike = 'spikecounts_%s.csv' % barcodefile
+    spikeneuron.to_csv(tosavespike)
+    neuroncounts.to_csv(tosaveBC)   
     
-    
-def combineUMIandBC(directory, barcode, outdir, barcodefilerange=96):
+def combineUMIandBC(directory, outdirectory, barcodefilerange=96):
     """
     Function to combine corrected barcodes and UMI's for each read and collect value counts.
     Also to detect degree of template switching between reads by seeing if UMI is shared by more than one barcode
     Also to split spike RNA from neuron barcodes, by whether contains...
     Args:
     directory = temp file where the intermediate UMI and barcode clustered csv files are kept
-    barcode = barcode to analyse
-    outdir = where you want final counts to be put
     barcodefilerange= the number of samples you want to loop through (default set for 96)
     """
     os.chdir(directory)
-    list = barcodefiles.read_csv(barcodefiles, sep=" ")
-    for i in range(barcodefile_range):
+    for i in range(barcodefilerange):
+        os.chdir(directory)
         num=i+1
         barcode ='BC%s' %num
         neuronfile = 'neuronBCcorrected_%s.csv' %barcode
         umifile = 'UMIs_corrected_%s.csv' %barcode
-        barcode ='BC%s' %num
-        if os.path.isfile(umifile) and os.path.isfile(umifile):
-            neuronfile = 'neuronBCcorrected_%s.csv' %barcode
-            umifile = 'UMIs_corrected_%s.csv' %barcode
+        if os.path.isfile(neuronfile) and os.path.isfile(umifile):
+            print('processing %s' %barcode, flush=True)
             combined = pd.concat([pd.read_csv(neuronfile), pd.read_csv(umifile)], axis=1)
             combined['combined']=combined['corrected_neuronBC']+combined['corrected_umi']
             spikein= combined[combined['combined'].str.contains('^.{24}ATCAGTCA')== True].rename_axis('sequence')
             neurons= combined[combined['combined'].str.contains('^.{30}[CT][CT]')== True].rename_axis('sequence')
             neuroncounts= neurons['combined'].value_counts().rename_axis('sequence').reset_index(name='counts')
             counts_spike = spikein['combined'].value_counts().rename_axis('sequence').reset_index(name='counts')
+                #only take umi counts greater or equal to 2
+            neuroncounts = neuroncounts[neuroncounts['counts']>=2]
+            counts_spike = counts_spike[counts_spike['counts']>=2]
             counts_spike['barcode'] = counts_spike['sequence'].str[:32]
             neuroncounts['barcode'] = neuroncounts['sequence'].str[:32]
             spikeneuron =counts_spike['barcode'].value_counts().rename_axis('sequence').reset_index(name='counts')
             neuroncounts = neuroncounts['barcode'].value_counts().rename_axis('sequence').reset_index(name='counts')
+            os.chdir(outdirectory)
+            print('finished %s' %barcode, flush=True)
             tosaveBC = 'neuroncounts_%s.csv' % barcode
             tosavespike = 'spikecounts_%s.csv' % barcode
+            spikeneuron.to_csv(tosavespike)
+            neuroncounts.to_csv(tosaveBC)
         else:
             print('both not there for %s' %barcode)
     
+def normalise_on_spike(directory, outdir):
+    """
+    Function to normalise differences in RT efficiency and 2nd strand synth between samples by 
+    normalising barcode counts for each sample based on counts for spike-in RNA
 
-    
+    Args:
+        directory (directory): Directory where counts are kept
+        outdir: directory where output is saved
+    """
+    #first make a table with total spike counts per sample
+    #take min spike count as 1, and normalise counts to this
+    os.chdir(directory)
+    spike_counts = pd.DataFrame(columns=['sample', 'spike_count'])
+    for sample in os.listdir(directory):
+        if sample.startswith('spikecounts'):
+            samplename = sample.split('spikecounts_', 1)
+            samplename=samplename[1][:-len('.csv')]
+            sample1 = pd.read_csv(sample)
+            sample1['counts'] = sample1['counts'].astype('int')
+            sumcounts = sample1['counts'].sum()
+            new_row = pd.DataFrame({'sample': samplename, 'spike_count': sumcounts}, index=[0])
+            spike_counts = pd.concat([spike_counts, new_row])
+    lowest= min(spike_counts['spike_count']) #NB ... because max spike number is not always 1, might need to adjust umi count/cutoff
+    spike_counts['normalisation_factor'] = spike_counts['spike_count']/lowest
+    print(spike_counts)
+    for sample in os.listdir(directory):
+        os.chdir(directory)
+        if sample.startswith('neuroncounts_'):
+            samplename = sample.split('neuroncounts_', 1)
+            samplename=samplename[1][:-len('.csv')]
+            sample1 = pd.read_csv(sample)
+            normalisation_factor = spike_counts.loc[spike_counts['sample'] == samplename, 'normalisation_factor'].iloc[0]
+            sample1['normalised_counts'] = sample1['counts']/normalisation_factor
+            name = 'normalised_counts_%s.csv' %samplename
+            os.chdir(outdir)
+            sample1.to_csv(name)
+        
