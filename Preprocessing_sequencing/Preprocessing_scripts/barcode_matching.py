@@ -13,7 +13,7 @@ def barcode_matching(sorting_directory, num_samples):
     all_seq = []
 
     for barcodefile in os.listdir(sorting_directory):
-            if barcodefile.startswith("normalised_counts_BC"):
+            if barcodefile.startswith("noone_normalised_counts_BC"):
                 print('reading barcode file %s' %barcodefile, flush=True)
                 toread = pd.read_csv(barcodefile)
                 sequences = toread['sequence']
@@ -33,9 +33,9 @@ def barcode_matching(sorting_directory, num_samples):
     for barcode in all_seq_unique:
         index += 1
         for barcodefile in os.listdir(sorting_directory):
-            if barcodefile.startswith("normalised_counts_BC"):
+            if barcodefile.startswith("noone_normalised_counts_BC"):
                 toread = pd.read_csv(barcodefile)
-                sample = int(barcodefile.split('normalised_counts_BC', 1)[1][:-len('.csv')])
+                sample = int(barcodefile.split('noone_normalised_counts_BC', 1)[1][:-len('.csv')])
                 for r, sequence in toread['sequence'].items():
                     if sequence == barcode:
                         barcodes_across_sample.at[index, sample]= toread['normalised_counts'][r]

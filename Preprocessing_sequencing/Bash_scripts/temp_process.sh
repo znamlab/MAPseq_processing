@@ -4,7 +4,8 @@
 # Number of tasks in job script
 #SBATCH --ntasks=1
 #SBATCH --time=24:00:00
-#SBATCH --mem=250G
+#SBATCH --mem=350G
+#SBATCH --partition=hmem
 
 
 # Notifications
