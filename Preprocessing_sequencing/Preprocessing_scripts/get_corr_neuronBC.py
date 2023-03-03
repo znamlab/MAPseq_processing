@@ -16,12 +16,9 @@ def processtheminlots(newdir, barcodenum, numberdivisions):
     numberdivisions = the number of chunks you have for each bigger file
     """
     os.chdir(newdir)
-    script_path = '/camp/home/turnerb/home/shared/code/MAPseq_processing/AC_MAPseq/Brain1_FIAA32.6a/New_with_UMItools/160223/files/process_big_onesBarcode.sh'
+    script_path = '/camp/home/turnerb/home/users/turnerb/code/MAPseq_processing/Preprocessing_sequencing/Bash_scripts/process_big_onesBarcode.sh'
     for x in range(numberdivisions):
         toread = 'NeuronBCintermediate_%s_%s.csv' % (barcodenum, x+1)
-        with open('/camp/home/turnerb/home/shared/code/MAPseq_processing/AC_MAPseq/Brain1_FIAA32.6a/New_with_UMItools/160223/temp/temp_sampleUMItotakeFiles.txt', 'w') as f:
-            f.write('%s' %toread)
-       # args = (f"--export=DATAPATH={directory}, FILE={toread}")
         command = f"sbatch {script_path} {toread}"
         print(command)
         subprocess.Popen(shlex.split(command))
@@ -59,13 +56,13 @@ def getCorrectBarcodes(barcodefile, directory, bigonesorting_dir, homopolymerthr
     barcode_tab['neuron_bc'] = barcode_tab['full_read'].str[:32]
     size = os.stat(barcodefile).st_size
     if size > 1000000000: #if the size of the barcode table is huge, we'll split it into smaller chunks for processing, then cluster together again at end
-        numberdivisions = round(barcode_tab.shape[0]/5000000)
+        numberdivisions = round(barcode_tab.shape[0]/2000000)
         sequences = barcode_tab
         num=0
         for i in range(numberdivisions):
             if num != numberdivisions-1:
-                df_short = sequences.iloc[:5000000,:]
-                sequences= sequences.iloc[5000000:,:]
+                df_short = sequences.iloc[:2000000,:]
+                sequences= sequences.iloc[2000000:,:]
             else:
                 df_short = sequences
             newtmpfile = 'temp/bigones/NeuronBCintermediate_%s_%s.csv' % (barcodenum, num+1)
