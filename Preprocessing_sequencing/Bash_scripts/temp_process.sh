@@ -2,10 +2,10 @@
 # Job name
 #SBATCH --job-name=final_big_o%j
 # Number of tasks in job script
+#SBATCH --time=48:00:00
 #SBATCH --ntasks=1
-#SBATCH --time=24:00:00
-#SBATCH --mem=350G
-#SBATCH --partition=hmem
+#SBATCH --mem=250G
+
 
 
 # Notifications
@@ -27,5 +27,8 @@ conda activate MAPseq_processing
 echo "Running MAPseq preprocessing"
 
 cd /camp/home/turnerb/home/users/turnerb/code/MAPseq_processing/Preprocessing_sequencing/Preprocessing_scripts
-srun- python Call_functions_UMIchunk.py $1
+python Call_functions_UMIchunk.py $1
+
+
+wait
 echo "Done"

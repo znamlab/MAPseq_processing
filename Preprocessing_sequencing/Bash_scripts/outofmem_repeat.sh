@@ -4,7 +4,8 @@
 # Number of tasks in job script
 #SBATCH --ntasks=1
 #SBATCH --time=48:00:00
-#SBATCH --mem=250G
+#SBATCH --mem=350G
+#SBATCH --partition=hmem
 
 # Notifications
 #SBATCH --output=/camp/home/turnerb/slurm_logs/BCBatch/180223/outofmem_repeattakethesmallones_UMI_%j.out
