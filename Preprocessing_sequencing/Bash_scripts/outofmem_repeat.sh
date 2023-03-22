@@ -4,7 +4,7 @@
 # Number of tasks in job script
 #SBATCH --ntasks=1
 #SBATCH --time=48:00:00
-#SBATCH --mem=350G
+#SBATCH --mem=1000G
 #SBATCH --partition=hmem
 
 # Notifications
@@ -27,6 +27,7 @@ echo "Running MAPseq preprocessing"
 
 #BARCODE=$(</camp/home/turnerb/home/shared/code/MAPseq_processing/AC_MAPseq/Brain1_FIAA32.6a/New_with_UMItools/160223/temp/temp_sampleUMItotakeFiles.txt)
 
-cd /camp/home/turnerb/home/shared/code/MAPseq_processing/AC_MAPseq/Brain1_FIAA32.6a/New_with_UMItools/160223/files/UMIbatch
+#cd /camp/home/turnerb/home/shared/code/MAPseq_processing/AC_MAPseq/Brain1_FIAA32.6a/New_with_UMItools/160223/files/UMIbatch
+cd /camp/home/turnerb/home/users/turnerb/code/MAPseq_processing/Preprocessing_sequencing/Preprocessing_scripts
 python Call_functions_UMIchunk.py $1
 echo "Done"
