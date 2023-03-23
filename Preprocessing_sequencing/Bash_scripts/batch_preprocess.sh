@@ -1,10 +1,10 @@
 #!/bin/sh
 # Job name
-#SBATCH --job-name=batch_process_210323
+#SBATCH --job-name=batch_process_230323
 # Number of tasks in job script
 #SBATCH --ntasks=1
 #SBATCH --time=48:00:00
-#SBATCH --mem=250G
+#SBATCH --mem=50G
 
 # Notifications
 #SBATCH --output=/camp/home/turnerb/slurm_logs/March23/batchprocess_$1_%j.out
@@ -25,5 +25,5 @@ conda activate MAPseq_processing
 echo "Running MAPseq preprocessing for $1"
 
 cd /camp/home/turnerb/home/users/turnerb/code/MAPseq_processing/Preprocessing_sequencing/Preprocessing_scripts
-python Call_functions_batch.py $1 $2
+python call_functions_batch.py $1 $2
 echo "Done"

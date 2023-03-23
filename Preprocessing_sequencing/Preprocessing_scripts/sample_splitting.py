@@ -172,13 +172,13 @@ def run_bc_splitter(
         n_reads = 1
         for il, (r1, r2) in enumerate(zip(read1, read2)):
             if il % 4 == 1:
-                # crop sequence if needed
-                if r1_part is not None:
-                    r1 = r1[r1_part[0] : r1_part[1]]
-                if r2_part is not None:
-                    r2 = r2[r2_part[0] : r2_part[1]]
-                # concatenate and write to temporary file
                 if r1[32:37] == consensus:
+                    # crop sequence if needed
+                    if r1_part is not None:
+                        r1 = r1[r1_part[0] : r1_part[1]]
+                    if r2_part is not None:
+                        r2 = r2[r2_part[0] : r2_part[1]]
+                    # concatenate and write to temporary file
                     full_read = r1.strip() + r2.strip() + "\n"
                     target.write("> {0}\n{1}".format(n_reads, full_read))
                     n_reads += 1

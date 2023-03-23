@@ -18,16 +18,15 @@
 # load relevant modules
 echo "Loading modules"
 ml Anaconda3
-ml FASTX-Toolkit
 source /camp/apps/eb/software/Anaconda/conda.env.sh
-
+ml FASTX-Toolkit
 echo "Activating environment"
 conda activate MAPseq_processing
 
 echo "Running MAPseq preprocessing"
 
 cd /camp/home/turnerb/home/users/turnerb/code/MAPseq_processing/Preprocessing_sequencing/Preprocessing_scripts
-python Call_functions_splitting.py
+python call_functions_splitting.py
 
 
 

@@ -136,6 +136,8 @@ def batch_collapse_barcodes(newdir, sequence_type, barcodenum, numberdivisions):
         newdir: where to big intermediate files are kept
         barcodenum: RT sample barcode identifier
         numberdivisions: the number of chunks you have for each bigger file
+    Returns:
+        None.
     """
     big_directory = pathlib.Path(newdir)
     script_path = pathlib.Path(
@@ -155,6 +157,8 @@ def process_chunks(to_read, directory):
     Args:
         to_read: split barcode csv file to read
         directory: where files are
+    Returns:
+        None.
     """
     big_directory_path = pathlib.Path(directory)
     barcode_path = big_directory_path.joinpath(to_read)
