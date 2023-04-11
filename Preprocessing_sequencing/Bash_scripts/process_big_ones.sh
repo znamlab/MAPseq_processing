@@ -8,8 +8,8 @@
 #SBATCH --partition=hmem
 
 # Notifications
-#SBATCH --output=/camp/home/turnerb/slurm_logs/March23/calling_big_one_%j.out
-#SBATCH --error=/camp/home/turnerb/slurm_logs/March23/calling_big_one_%j.err
+#SBATCH --output=/camp/home/turnerb/slurm_logs/April23/0504_calling_big_one_%j.out
+#SBATCH --error=/camp/home/turnerb/slurm_logs/April23/0504_calling_big_one_%j.err
 #SBATCH --mail-type=ALL
 #SBATCH --mail-user=benita.turner-bridger@crick.ac.uk
 # Main script that calls all the steps of the preprocessing
@@ -17,6 +17,7 @@
 # load relevant modules
 echo "Loading modules"
 ml purge
+
 ml Anaconda3
 source /camp/apps/eb/software/Anaconda/conda.env.sh
 

@@ -71,39 +71,52 @@ def process_barcode_tables(barcode, directory, homopolymer_thresh, big_mem):
     barcode_tab = pd.DataFrame()
     barcode_tab["full_read"] = raw_bc[
         (~raw_bc.iloc[:, 0].str.contains("N"))
-        & (~raw_bc.iloc[:, 0].str.contains(hopolA))
-        & (~raw_bc.iloc[:, 0].str.contains(hopolG))
-        & (~raw_bc.iloc[:, 0].str.contains(hopolC))
-        & (~raw_bc.iloc[:, 0].str.contains(hopolT))
+        # & (~raw_bc.iloc[:, 0].str.contains(hopolA)) removed homopolymer requirement
+        # & (~raw_bc.iloc[:, 0].str.contains(hopolG))
+        # & (~raw_bc.iloc[:, 0].str.contains(hopolC))
+        # & (~raw_bc.iloc[:, 0].str.contains(hopolT))
     ]
     barcode_tab["neuron_sequence"] = barcode_tab["full_read"].str[:32]
     barcode_tab["umi_sequence"] = barcode_tab["full_read"].str[32:46]
     # error correct neuron barcodes first (not as diverse as umi's, so whole table processed for big ones)
-    neuron_bc_corrected = error_correct_sequence(
-        reads=barcode_tab, sequence_type="neuron"
-    )
-    if big_mem == "no":
-        corrected_sequences = error_correct_sequence(
-            reads=neuron_bc_corrected, sequence_type="umi"
+    int_file = corrected_path.joinpath(
+            f"neuron_only_corrected_{barcode_file.stem}.pkl"
         )
-    elif big_mem == "yes":
-        corrected_sequences = neuron_bc_corrected
-        neuron_list = corrected_sequences["corrected_sequences_neuron"].unique()
-        corrected_sequences["corrected_sequences_umi"] = "NA"
-        n = 10000  # number of neuron barcodes to process at one time
-        neuron_list_subsets = [
-            neuron_list[i : i + n] for i in range(0, len(neuron_list), n)
+    if pathlib.Path(int_file).is_file()==False:
+        neuron_bc_corrected = error_correct_sequence(reads=barcode_tab, sequence_type="neuron")
+        if big_mem == "yes":
+            neuron_bc_corrected.to_pickle(int_file)  # if it's a big file, save intermediate in case job runs out of time
+    # if big_mem == "no":
+    #    corrected_sequences = error_correct_sequence(
+    #        reads=neuron_bc_corrected, sequence_type="umi"
+    #   )
+    # elif big_mem == "yes":
+    # corrected_sequences = neuron_bc_corrected
+    if pathlib.Path(int_file).is_file():
+        neuron_bc_corrected = pd.read_pickle(int_file)
+    neuron_list = neuron_bc_corrected["corrected_sequences_neuron"].unique()
+    neuron_bc_corrected["corrected_sequences_umi"] = "NA"
+    n = 100  # max number of neuron barcodes to process at one time
+    neuron_list_subsets = [neuron_list[i : i + n] for i in range(0, len(neuron_list), n)]
+    for sequence_str in neuron_list_subsets:
+    #for sequence_str in neuron_list:
+        neuron_bc_analysed = neuron_bc_corrected[
+            neuron_bc_corrected["corrected_sequences_neuron"].isin(sequence_str)#str.contains(sequence_str)
         ]
-        for sequence_str in neuron_list_subsets:
-            neuron_bc_analysed = corrected_sequences[
-                corrected_sequences["corrected_sequences_neuron"].isin(sequence_str)
-            ]
-            chunk_analysed = error_correct_sequence(
-                reads=neuron_bc_analysed, sequence_type="umi"
-            )
-            corrected_sequences.update(chunk_analysed)
+        chunk_analysed = error_correct_sequence(
+            reads=neuron_bc_analysed, sequence_type="umi"
+        )
+        neuron_bc_corrected.update(chunk_analysed)
+    corrected = sum(
+        neuron_bc_corrected["umi_sequence"]
+        != neuron_bc_corrected["corrected_sequences_umi"]
+    )
+    total = len(neuron_bc_corrected)
+    print(f"Corrected {corrected} out of  {total} sequence counts for umis")
+    if big_mem == "yes":
+        os.remove(int_file)
     new_file = corrected_path.joinpath(f"corrected_{barcode_file.stem}.csv")
-    corrected_sequences.to_csv(new_file)
+    neuron_bc_corrected.to_csv(new_file)
     print(f"Finished at {datetime.now()}")
 
 
@@ -137,27 +150,29 @@ def error_correct_sequence(reads, sequence_type):
         != barcode_tab[f"corrected_sequences_{sequence_type}"]
     )
     total = len(barcode_tab)
-    print(f"Corrected {corrected} out of  {total} sequence counts")
-    tend = datetime.now()
-    print(f"That took {tend - tstart}", flush=True)
+    if sequence_type == "neuron":
+        print(
+            f"Corrected {corrected} out of  {total} sequence counts for neuron barcodes"
+        )
+        tend = datetime.now()
+        print(f"That took {tend - tstart}", flush=True)
     return barcode_tab
 
 
-def combineUMIandBC(directory, UMI_cutoff=7, barcode_filerange=96):
+def combineUMIandBC(directory, UMI_cutoff=9, barcode_file_range=96):
     """
     Function to combine corrected barcodes and UMI's for each read and collect value counts.
     Also to detect degree of template switching between reads by seeing if UMI is shared by more than one barcode
     Also to split spike RNA from neuron barcodes, by whether contains N[24]ATCAGTCA (vs N[32]CTCT for neuron barcodes)
     Args:
         directory (str): path to temp file where the intermediate UMI and barcode clustered csv files are kept
-        UMI_cutoff (int): threshold for minimum umi count per barcode. (default =7)
-        barcode_filerange (int): the number of samples you want to loop through (default set for 96)
+        UMI_cutoff (int): threshold for minimum umi count per barcode. (default =9)
+        barcode_file_range (int): the number of samples you want to loop through (default set for 96)
     """
     dir_path = pathlib.Path(directory)
     out_dir = dir_path.joinpath("Final_processed_sequences")
     pathlib.Path(out_dir).mkdir(parents=True, exist_ok=True)
-    for i in range(barcode_filerange):
-        os.chdir(directory)
+    for i in range(barcode_file_range):
         barcode = f"BC{i+1}"
         sample_file = dir_path / f"corrected_{barcode}.csv"
         if os.path.isfile(sample_file):
@@ -202,10 +217,9 @@ def combineUMIandBC(directory, UMI_cutoff=7, barcode_filerange=96):
                 .rename_axis("sequence")
                 .reset_index(name="counts")
             )
-            os.chdir(out_directory)
             print("finished %s" % barcode, flush=True)
             to_save_BC = out_dir / f"neuron_counts_{barcode}.csv"
-            to_save_spike = out_dir / f"spikecounts_{barcode}.csv"
+            to_save_spike = out_dir / f"spike_counts_{barcode}.csv"
             spike_counts.to_csv(to_save_spike)
             neuron_counts.to_csv(to_save_BC)
         else:
@@ -219,36 +233,33 @@ def barcode_matching(sorting_directory, num_samples):
                 num_samples = number of sample barcodes used
     """
     sorting_dir = pathlib.Path(sorting_directory)
-    all_seq = []
+    all_seq = pd.DataFrame()
     for barcode_file in os.listdir(sorting_dir):
         if barcode_file.startswith("neuron_counts_"):
-            print(f"reading barcode file{barcode_file}", flush=True)
-            to_read = pd.read_csv(barcode_file)
+            print(f"reading barcode file {barcode_file}", flush=True)
+            to_read = pd.read_csv(sorting_dir / barcode_file)
             sequences = to_read["sequence"]
-            all_seq.append(sequences)
-
-    all_seq = pd.DataFrame(all_seq)
-    bla = all_seq.to_numpy().flatten()
-    all_seq = [x for x in bla if str(x) != "nan"]
-    all_seq_unique = np.unique(all_seq)
-
+            all_seq = pd.concat([all_seq, sequences])
+    all_seq_unique = (
+        all_seq.value_counts().rename_axis("sequence").reset_index(name="counts")
+    )
     # tabulate counts of each barcode in each sample area
 
     samples = list(range(1, num_samples + 1))
-    barcodes_across_sample = pd.DataFrame(columns=samples, dtype=int)
+    zeros = np.zeros(shape=(len(all_seq_unique["sequence"]), len(samples)))
+    barcodes_across_sample = pd.DataFrame(zeros, columns=samples)
+    barcodes_across_sample = barcodes_across_sample.set_index(
+        all_seq_unique["sequence"]
+    )
 
-    index = -1
-    for barcode in all_seq_unique:
-        index += 1
-        for barcode_file in os.listdir(sorting_directory):
-            if barcode_file.startswith("neuron_counts_"):
-                to_read = pd.read_csv(barcode_file)
-                sample = int(
-                    barcode_file.split("neuron_counts_BC", 1)[1][: -len(".csv")]
-                )
-                for r, sequence in to_read["sequence"].items():
-                    if sequence == barcode:
-                        barcodes_across_sample.at[index, sample] = to_read["counts"][r]
+    for file in os.listdir(sorting_directory):
+        barcode_file = sorting_dir / file
+        if barcode_file.stem.startswith("neuron_counts_"):
+            toread = pd.read_csv(barcode_file)
+            sample = int(barcode_file.stem.split("neuron_counts_BC", 1)[1])
+            for r, sequence in toread["sequence"].items():
+                barcodes_across_sample.loc[sequence, sample] = toread["counts"][r]
+
     print("finito")
     barcodes_across_sample.to_pickle(sorting_dir / "barcodes_across_sample.pkl")
 
@@ -264,34 +275,33 @@ def normalise_on_spike(directory, outdir):
     """
     # first make a table with total spike counts per sample
     # take min spike count as 1, and normalise counts to this
-    os.chdir(directory)
+    directory_path = pathlib.Path(directory)
+    out_directory_path = pathlib.Path(outdir)
     spike_counts = pd.DataFrame(columns=["sample", "spike_count"])
-    for sample in os.listdir(directory):
-        if sample.startswith("spikecounts"):
-            samplename = sample.split("spikecounts_", 1)
-            samplename = samplename[1][: -len(".csv")]
-            sample1 = pd.read_csv(sample)
-            sample1["counts"] = sample1["counts"].astype("int")
-            sumcounts = sample1["counts"].sum()
+    for sample in os.listdir(directory_path):
+        if sample.startswith("spike_counts"):
+            sample_name = sample.split("spike_counts_", 1)
+            sample_name = sample_name[1][: -len(".csv")]
+            sample_reading = pd.read_csv(sample)
+            sample_reading["counts"] = sample_reading["counts"].astype("int")
+            sum_counts = sample_reading["counts"].sum()
             new_row = pd.DataFrame(
-                {"sample": samplename, "spike_count": sumcounts}, index=[0]
+                {"sample": sample_name, "spike_count": sum_counts}, index=[0]
             )
             spike_counts = pd.concat([spike_counts, new_row])
-    lowest = min(
-        spike_counts["spike_count"]
-    )  # NB ... because max spike number is not always 1, might need to adjust umi count/cutoff
+    lowest = min(spike_counts["spike_count"])
     spike_counts["normalisation_factor"] = spike_counts["spike_count"] / lowest
     print(spike_counts)
-    for sample in os.listdir(directory):
-        os.chdir(directory)
-        if sample.startswith("neuroncounts_"):
-            samplename = sample.split("neuroncounts_", 1)
-            samplename = samplename[1][: -len(".csv")]
-            sample1 = pd.read_csv(sample)
+    for sample in os.listdir(directory_path):
+        if sample.startswith("neuron_counts_"):
+            sample_name = sample.split("neuron_counts_", 1)
+            sample_name = sample_name[1][: -len(".csv")]
+            sample_reading = pd.read_csv(sample)
             normalisation_factor = spike_counts.loc[
-                spike_counts["sample"] == samplename, "normalisation_factor"
+                spike_counts["sample"] == sample_name, "normalisation_factor"
             ].iloc[0]
-            sample1["normalised_counts"] = sample1["counts"] / normalisation_factor
-            name = "normalised_counts_%s.csv" % samplename
-            os.chdir(outdir)
-            sample1.to_csv(name)
+            sample_reading["normalised_counts"] = (
+                sample_reading["counts"] / normalisation_factor
+            )
+            name = out_directory_path / f"normalised_counts_{sample_name}.csv"
+            sample_reading.to_csv(name)

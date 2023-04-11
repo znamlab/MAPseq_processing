@@ -163,7 +163,7 @@ def run_bc_splitter(
 
     # barcode splitter expects a file with the sequence number on one line and the
     # sequence on the next. We will do that
-    consensus = "GTACT"
+    consensus = "GCGGC"  # was GTACT at r1[32:37], but this is not in the spike-in RNA
     temp_file = output_dir / "barcode_splitter_input.fasta"
     with open(read1_file, "r") as read1, open(read2_file, "r") as read2, open(
         temp_file, "w"
@@ -172,7 +172,7 @@ def run_bc_splitter(
         n_reads = 1
         for il, (r1, r2) in enumerate(zip(read1, read2)):
             if il % 4 == 1:
-                if r1[32:37] == consensus:
+                if r1[37:42] == consensus:
                     # crop sequence if needed
                     if r1_part is not None:
                         r1 = r1[r1_part[0] : r1_part[1]]
