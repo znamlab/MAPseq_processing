@@ -79,13 +79,15 @@ def process_barcode_tables(barcode, directory, homopolymer_thresh, big_mem):
     barcode_tab["neuron_sequence"] = barcode_tab["full_read"].str[:32]
     barcode_tab["umi_sequence"] = barcode_tab["full_read"].str[32:46]
     # error correct neuron barcodes first (not as diverse as umi's, so whole table processed for big ones)
-    int_file = corrected_path.joinpath(
-            f"neuron_only_corrected_{barcode_file.stem}.pkl"
+    int_file = corrected_path.joinpath(f"neuron_only_corrected_{barcode_file.stem}.pkl")
+    if pathlib.Path(int_file).is_file() == False:
+        neuron_bc_corrected = error_correct_sequence(
+            reads=barcode_tab, sequence_type="neuron"
         )
-    if pathlib.Path(int_file).is_file()==False:
-        neuron_bc_corrected = error_correct_sequence(reads=barcode_tab, sequence_type="neuron")
         if big_mem == "yes":
-            neuron_bc_corrected.to_pickle(int_file)  # if it's a big file, save intermediate in case job runs out of time
+            neuron_bc_corrected.to_pickle(
+                int_file
+            )  # if it's a big file, save intermediate in case job runs out of time
     # if big_mem == "no":
     #    corrected_sequences = error_correct_sequence(
     #        reads=neuron_bc_corrected, sequence_type="umi"
@@ -97,11 +99,15 @@ def process_barcode_tables(barcode, directory, homopolymer_thresh, big_mem):
     neuron_list = neuron_bc_corrected["corrected_sequences_neuron"].unique()
     neuron_bc_corrected["corrected_sequences_umi"] = "NA"
     n = 100  # max number of neuron barcodes to process at one time
-    neuron_list_subsets = [neuron_list[i : i + n] for i in range(0, len(neuron_list), n)]
+    neuron_list_subsets = [
+        neuron_list[i : i + n] for i in range(0, len(neuron_list), n)
+    ]
     for sequence_str in neuron_list_subsets:
-    #for sequence_str in neuron_list:
+        # for sequence_str in neuron_list:
         neuron_bc_analysed = neuron_bc_corrected[
-            neuron_bc_corrected["corrected_sequences_neuron"].isin(sequence_str)#str.contains(sequence_str)
+            neuron_bc_corrected["corrected_sequences_neuron"].isin(
+                sequence_str
+            )  # str.contains(sequence_str)
         ]
         chunk_analysed = error_correct_sequence(
             reads=neuron_bc_analysed, sequence_type="umi"
@@ -163,7 +169,7 @@ def combineUMIandBC(directory, UMI_cutoff=9, barcode_file_range=96):
     """
     Function to combine corrected barcodes and UMI's for each read and collect value counts.
     Also to detect degree of template switching between reads by seeing if UMI is shared by more than one barcode
-    Also to split spike RNA from neuron barcodes, by whether contains N[24]ATCAGTCA (vs N[32]CTCT for neuron barcodes)
+    Also to split spike RNA from neuron barcodes, by whether contains N[24]ATCAGTCA (vs N[30][CT][CT] for neuron barcodes)
     Args:
         directory (str): path to temp file where the intermediate UMI and barcode clustered csv files are kept
         UMI_cutoff (int): threshold for minimum umi count per barcode. (default =9)
