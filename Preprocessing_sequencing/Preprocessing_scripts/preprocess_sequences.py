@@ -61,10 +61,10 @@ def process_barcode_tables(barcode, directory, homopolymer_thresh, big_mem):
     pathlib.Path(corrected_path).mkdir(parents=True, exist_ok=True)
     big_output_directory_path = directory_path.joinpath("temp_big_ones")
     pathlib.Path(big_output_directory_path).mkdir(parents=True, exist_ok=True)
-    hopolA = "A" * homopolymer_thresh
-    hopolT = "T" * homopolymer_thresh
-    hopolC = "C" * homopolymer_thresh
-    hopolG = "G" * homopolymer_thresh
+    # hopolA = "A" * homopolymer_thresh
+    # hopolT = "T" * homopolymer_thresh
+    # hopolC = "C" * homopolymer_thresh
+    # hopolG = "G" * homopolymer_thresh
     raw_bc = pd.read_csv(
         barcode_file, delimiter="\t", skiprows=lambda x: (x != 0) and not x % 2
     )
@@ -165,10 +165,159 @@ def error_correct_sequence(reads, sequence_type):
     return barcode_tab
 
 
+def join_tabs_and_split(directory, start_from_beginning):
+    """
+    Function to generate a table to check the amount of template switching across entire sample set, split into smaller chunks for processing in separate jobs
+    Args:
+        directory (str): path where the sequencing/pcr corrected sequences are kept
+        start_from_beginning (str): 'yes' or 'no' whether want to start from combining files or not
+    """
+    n = 50000  # number of unique umi's to process at once per job
+    reads_path = pathlib.Path(directory)
+    template_dir = reads_path.joinpath("template_switching")
+    pathlib.Path(template_dir).mkdir(parents=True, exist_ok=True)
+    chunk_dir = template_dir.joinpath("chunks")
+    pathlib.Path(chunk_dir).mkdir(parents=True, exist_ok=True)
+    template_switch_script = "/camp/home/turnerb/home/users/turnerb/code/MAPseq_processing/Preprocessing_sequencing/Bash_scripts/template_chunks.sh"
+    if start_from_beginning == "yes":
+        barcode_sequences = pd.DataFrame(
+            columns=["corrected_neuron", "corrected_UMI", "sample"]
+        )
+        print("starting combining samples into one big file", flush=True)
+        for file in os.listdir(reads_path):
+            barcode_file = reads_path / file
+            if barcode_file.stem.startswith("corrected_"):
+                bc_table = pd.read_csv(barcode_file)
+                sample = barcode_file.stem.split("corrected_", 1)[1]
+                new_tab = pd.DataFrame(
+                    {
+                        "corrected_neuron": bc_table["corrected_sequences_neuron"],
+                        "corrected_UMI": bc_table["corrected_sequences_umi"],
+                        "sample": sample,
+                    }
+                )
+                barcode_sequences = pd.concat([barcode_sequences, new_tab])
+        print(
+            "finished combining samples into one big file, now sending jobs for umi cross barcode counting",
+            flush=True,
+        )
+        barcode_sequences.to_csv(template_dir / "template_switching_all_seq.csv")
+    if start_from_beginning == "no":
+        print("reading full table combined", flush=True)
+        barcode_sequences = pd.read_csv(template_dir / "template_switching_all_seq.csv")
+    UMI_list = barcode_sequences["corrected_UMI"].unique()
+    neuron_list_subsets = [UMI_list[i : i + n] for i in range(0, len(UMI_list), n)]
+    iteration = 0
+    for sequence_str in neuron_list_subsets:
+        table_chunk = barcode_sequences[
+            barcode_sequences["corrected_UMI"].isin(sequence_str)
+        ]
+        iteration = iteration + 1
+        table_name = chunk_dir / f"chunk_{iteration}.csv"
+        table_chunk.to_csv(table_name, index=False)
+        command = f"sbatch {template_switch_script} {table_name}"
+        print(command, flush=True)
+        subprocess.Popen(shlex.split(command))
+
+
+def switch_analysis(directory, chunk):
+    """
+    Function to perform analysis of which umi's are switching between different barcodes
+    Args:
+        directory(str): where the template path is
+        chunk(str): table chunk of umi's to look at
+    """
+    outdir = pathlib.Path(directory)
+    saving_path = outdir.joinpath("analysed_chunks")
+    pathlib.Path(saving_path).mkdir(parents=True, exist_ok=True)
+    barcode_sequences = pd.read_csv(chunk)
+    chunk_path = pathlib.Path(chunk)
+    which_chunk = chunk_path.stem.split("chunk_", 1)[1]
+    tstart = datetime.now()
+    UMI_list = barcode_sequences["corrected_UMI"].unique()
+    template_switching_check = pd.DataFrame(
+        {
+            "UMI": UMI_list,
+            "total": 0,
+            "different_neurons": 0,
+            "1st_abundant": 0,
+            "2nd_abundant": 0,
+            "sequence_of_1st": "A",
+            "sample_of_1st": 0,
+        }
+    ).set_index("UMI")
+    barcode_sequences["combined"] = (
+        barcode_sequences["corrected_neuron"] + barcode_sequences["corrected_UMI"]
+    )
+    i = 1
+    check_points = [10, 100, 1000, 5000, 10000, 20000, 50000]
+    for umi in UMI_list:
+        i = i + 1
+        cross_barcode_counts = barcode_sequences[
+            barcode_sequences.corrected_UMI.isin([umi])
+        ].combined.value_counts()
+        if len(cross_barcode_counts) > 1:
+            second = cross_barcode_counts[1]
+        else:
+            second = 0
+        template_switching_check.loc[umi, "total"] = cross_barcode_counts.sum()
+        template_switching_check.loc[umi, "different_neurons"] = len(
+            cross_barcode_counts
+        )
+        template_switching_check.loc[umi, "1st_abundant"] = cross_barcode_counts[0]
+        template_switching_check.loc[umi, "2nd_abundant"] = second
+        template_switching_check.loc[
+            umi, "sequence_of_1st"
+        ] = cross_barcode_counts.index[0]
+        template_switching_check.loc[umi, "sample_of_1st"] = (
+            barcode_sequences.loc[
+                barcode_sequences["combined"] == cross_barcode_counts.index[0], "sample"
+            ]
+            .value_counts()
+            .index[0]
+        )
+        if i in check_points:
+            print(f"reached number {i} in {datetime.now()-tstart}", flush=True)
+    print("finished umi cross barcode counting, saving file", flush=True)
+    template_switching_check.to_csv(
+        saving_path / f"template_switching_chunk_{which_chunk}.csv"
+    )
+
+
+def combine_switch_tables(directory):
+    """
+    Function to combine tables from template switching analysis
+    Args:
+        directory (str): path where individual analysed chunks are kept
+    """
+    dir_path = pathlib.Path(directory)
+    saving_path = pathlib.Path(dir_path).parents[0]
+    template_switching_check = pd.DataFrame(
+        columns=[
+            "UMI",
+            "total",
+            "different_neurons",
+            "1st_abundant",
+            "2nd_abundant",
+            "chunk",
+        ]
+    ).set_index("UMI")
+    print("starting combining samples into one big file", flush=True)
+    for file in os.listdir(dir_path):
+        barcode_file = dir_path / file
+        if barcode_file.stem.startswith("template_switching_chunk_"):
+            bc_table = pd.read_csv(barcode_file)
+            sample = barcode_file.stem.split("template_switching_chunk_", 1)[1]
+            bc_table["chunk"] = sample
+            template_switching_check = pd.concat([template_switching_check, bc_table])
+    template_switching_check.to_csv(
+        saving_path / "combined_template_switching_chunks.csv"
+    )
+
+
 def combineUMIandBC(directory, UMI_cutoff=9, barcode_file_range=96):
     """
     Function to combine corrected barcodes and UMI's for each read and collect value counts.
-    Also to detect degree of template switching between reads by seeing if UMI is shared by more than one barcode
     Also to split spike RNA from neuron barcodes, by whether contains N[24]ATCAGTCA (vs N[30][CT][CT] for neuron barcodes)
     Args:
         directory (str): path to temp file where the intermediate UMI and barcode clustered csv files are kept
