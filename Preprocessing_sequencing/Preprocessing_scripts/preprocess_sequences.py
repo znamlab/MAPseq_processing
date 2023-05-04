@@ -284,14 +284,14 @@ def switch_analysis(directory, chunk):
     )
 
 
-def combine_switch_tables(directory):
+def combine_switch_tables(template_sw_directory):
     """
     Function to combine tables from template switching analysis
     Args:
-        directory (str): path where individual analysed chunks are kept
+        template_sw_directory (str): path where individual analysed chunks are kept
     """
-    dir_path = pathlib.Path(directory)
-    saving_path = pathlib.Path(dir_path).parents[0]
+    dir_path = pathlib.Path(template_sw_directory)
+    # saving_path = pathlib.Path(dir_path).parents[0]
     template_switching_check = pd.DataFrame(
         columns=[
             "UMI",
@@ -299,6 +299,8 @@ def combine_switch_tables(directory):
             "different_neurons",
             "1st_abundant",
             "2nd_abundant",
+            "sequence_of_1st",
+            "sample_of_1st",
             "chunk",
         ]
     ).set_index("UMI")
@@ -310,23 +312,36 @@ def combine_switch_tables(directory):
             sample = barcode_file.stem.split("template_switching_chunk_", 1)[1]
             bc_table["chunk"] = sample
             template_switching_check = pd.concat([template_switching_check, bc_table])
-    template_switching_check.to_csv(
-        saving_path / "combined_template_switching_chunks.csv"
-    )
+    # template_switching_check.to_csv(
+    #   saving_path / "combined_template_switching_chunks.csv"
+    # )
+    return template_switching_check
 
 
-def combineUMIandBC(directory, UMI_cutoff=9, barcode_file_range=96):
+def combineUMIandBC(directory, UMI_cutoff=4, barcode_file_range=96):
     """
     Function to combine corrected barcodes and UMI's for each read and collect value counts.
     Also to split spike RNA from neuron barcodes, by whether contains N[24]ATCAGTCA (vs N[30][CT][CT] for neuron barcodes)
     Args:
         directory (str): path to temp file where the intermediate UMI and barcode clustered csv files are kept
-        UMI_cutoff (int): threshold for minimum umi count per barcode. (default =9)
+        UMI_cutoff (int): threshold for minimum umi count per barcode. (default =4)
         barcode_file_range (int): the number of samples you want to loop through (default set for 96)
     """
+    template_switch_abundance = 10  # min amount that if shared umi between neuron barcodes the most abundant neuron barcode umi must be more abundant by
     dir_path = pathlib.Path(directory)
     out_dir = dir_path.joinpath("Final_processed_sequences")
     pathlib.Path(out_dir).mkdir(parents=True, exist_ok=True)
+    # load template switching table and generate a list of UMI's to remove
+    switching_tab = combine_switch_tables(
+        template_sw_directory=dir_path / "template_switching/analysed_chunks"
+    )
+    # switching_tab =pd.read_csv(dir_path / "template_switching/combined_template_switching_chunks.csv")
+    print(switching_tab.head(), flush=True)
+    switches = switching_tab[switching_tab["different_neurons"] > 1]
+    switches = switches[
+        switches["1st_abundant"] / switches["2nd_abundant"] > template_switch_abundance
+    ].set_index("UMI")
+
     for i in range(barcode_file_range):
         barcode = f"BC{i+1}"
         sample_file = dir_path / f"corrected_{barcode}.csv"
@@ -337,6 +352,24 @@ def combineUMIandBC(directory, UMI_cutoff=9, barcode_file_range=96):
                 sample_table["corrected_sequences_neuron"]
                 + sample_table["corrected_sequences_umi"]
             )
+            pot_switches = sample_table[
+                sample_table["corrected_sequences_umi"].isin(
+                    list(switches.index.values)
+                )
+            ]
+            for (
+                i,
+                row,
+            ) in (
+                pot_switches.iterrows()
+            ):  # here remove umi sequences that are template switching events
+                if (
+                    switches.loc[row["corrected_sequences_umi"]]["sequence_of_1st"]
+                    != row["combined"]
+                    and switches.loc[row["corrected_sequences_umi"]]["sample_of_1st"]
+                    != barcode
+                ):
+                    sample_table = sample_table.drop([i])
             spike_in = sample_table[
                 sample_table["combined"].str.contains("^.{24}ATCAGTCA") == True
             ].rename_axis("sequence")
