@@ -336,7 +336,6 @@ def combineUMIandBC(directory, UMI_cutoff=4, barcode_file_range=96):
         template_sw_directory=dir_path / "template_switching/analysed_chunks"
     )
     # switching_tab =pd.read_csv(dir_path / "template_switching/combined_template_switching_chunks.csv")
-    print(switching_tab.head(), flush=True)
     switches = switching_tab[switching_tab["different_neurons"] > 1]
     switches = switches[
         switches["1st_abundant"] / switches["2nd_abundant"] > template_switch_abundance
@@ -357,19 +356,23 @@ def combineUMIandBC(directory, UMI_cutoff=4, barcode_file_range=96):
                     list(switches.index.values)
                 )
             ]
-            for (
-                i,
-                row,
-            ) in (
-                pot_switches.iterrows()
-            ):  # here remove umi sequences that are template switching events
-                if (
-                    switches.loc[row["corrected_sequences_umi"]]["sequence_of_1st"]
-                    != row["combined"]
-                    and switches.loc[row["corrected_sequences_umi"]]["sample_of_1st"]
-                    != barcode
-                ):
-                    sample_table = sample_table.drop([i])
+            # now remove umi sequences that are template switching events
+            pot_switches["drop_or_not"] = pot_switches.apply(
+                lambda x: "yes"
+                if switches.loc[x["corrected_sequences_umi"]]["sequence_of_1st"]
+                == x["combined"]
+                and switches.loc[x["corrected_sequences_umi"]]["sample_of_1st"]
+                != barcode
+                else "yes"
+                if switches.loc[x["corrected_sequences_umi"]]["sequence_of_1st"]
+                != x["combined"]
+                else "no",
+                axis=1,
+            )
+            sample_file = sample_table.drop(
+                pot_switches[pot_switches["drop_or_not"] == "yes"].index.tolist()
+            )
+            # separate and save spike in vs neuron barcodes
             spike_in = sample_table[
                 sample_table["combined"].str.contains("^.{24}ATCAGTCA") == True
             ].rename_axis("sequence")
