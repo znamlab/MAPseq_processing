@@ -41,23 +41,22 @@ def preprocess_reads(directory, barcode_range, homopolymer_thresh=5):
             process_barcode_tables(
                 barcode=barcode_file,
                 directory=directory,
-                homopolymer_thresh=homopolymer_thresh,
                 big_mem="no",
             )
 
 
-def process_barcode_tables(barcode, directory, homopolymer_thresh, big_mem):
+def process_barcode_tables(barcode, directory, big_mem):
     """Function to process the UMI and barcode sequences, removing homopolymers before calling error correction. If the sample barcode has a large number
     of reads, we'll send another batch script to handle these separately.
     Args:
         barcode: what RT barcode file for samples is being analysed
         directory: directory where sample barcode files are kept
-        homopolymer_thresh: number of homopolymeric repeats, default =5
+        homopolymer_thresh: number of homopolymeric repeats, default =5 (now removed)
         big_mem: 'yes' or 'no'. if the txt file is a big one or not.
     """
     directory_path = pathlib.Path(directory)
     barcode_file = pathlib.Path(barcode)
-    corrected_path = directory_path.joinpath("preprocessed_seq")
+    corrected_path = directory_path.joinpath("preprocessed_seq_corrected")
     pathlib.Path(corrected_path).mkdir(parents=True, exist_ok=True)
     big_output_directory_path = directory_path.joinpath("temp_big_ones")
     pathlib.Path(big_output_directory_path).mkdir(parents=True, exist_ok=True)
@@ -172,7 +171,7 @@ def join_tabs_and_split(directory, start_from_beginning):
         directory (str): path where the sequencing/pcr corrected sequences are kept
         start_from_beginning (str): 'yes' or 'no' whether want to start from combining files or not
     """
-    n = 50000  # number of unique umi's to process at once per job
+    n = 30000  # number of unique umi's to process at once per job
     reads_path = pathlib.Path(directory)
     template_dir = reads_path.joinpath("template_switching")
     pathlib.Path(template_dir).mkdir(parents=True, exist_ok=True)
@@ -318,13 +317,13 @@ def combine_switch_tables(template_sw_directory):
     return template_switching_check
 
 
-def combineUMIandBC(directory, UMI_cutoff=4, barcode_file_range=96):
+def combineUMIandBC(directory, UMI_cutoff=2, barcode_file_range=96):
     """
     Function to combine corrected barcodes and UMI's for each read and collect value counts.
     Also to split spike RNA from neuron barcodes, by whether contains N[24]ATCAGTCA (vs N[30][CT][CT] for neuron barcodes)
     Args:
         directory (str): path to temp file where the intermediate UMI and barcode clustered csv files are kept
-        UMI_cutoff (int): threshold for minimum umi count per barcode. (default =4)
+        UMI_cutoff (int): threshold for minimum umi count per barcode. (default =2)
         barcode_file_range (int): the number of samples you want to loop through (default set for 96)
     """
     template_switch_abundance = 10  # min amount that if shared umi between neuron barcodes the most abundant neuron barcode umi must be more abundant by
@@ -337,6 +336,9 @@ def combineUMIandBC(directory, UMI_cutoff=4, barcode_file_range=96):
     )
     # switching_tab =pd.read_csv(dir_path / "template_switching/combined_template_switching_chunks.csv")
     switches = switching_tab[switching_tab["different_neurons"] > 1]
+    junk_umis = switches[
+        switches["1st_abundant"] / switches["2nd_abundant"] <= template_switch_abundance
+    ]["UMI"].tolist()
     switches = switches[
         switches["1st_abundant"] / switches["2nd_abundant"] > template_switch_abundance
     ].set_index("UMI")
@@ -347,6 +349,11 @@ def combineUMIandBC(directory, UMI_cutoff=4, barcode_file_range=96):
         if os.path.isfile(sample_file):
             print("processing %s" % barcode, flush=True)
             sample_table = pd.read_csv(sample_file)
+            # remove junk umi's
+            sample_table = sample_table[
+                ~sample_table["corrected_sequences_umi"].isin(junk_umis)
+            ]
+
             sample_table["combined"] = (
                 sample_table["corrected_sequences_neuron"]
                 + sample_table["corrected_sequences_umi"]
@@ -369,7 +376,7 @@ def combineUMIandBC(directory, UMI_cutoff=4, barcode_file_range=96):
                 else "no",
                 axis=1,
             )
-            sample_file = sample_table.drop(
+            sample_table = sample_table.drop(
                 pot_switches[pot_switches["drop_or_not"] == "yes"].index.tolist()
             )
             # separate and save spike in vs neuron barcodes
