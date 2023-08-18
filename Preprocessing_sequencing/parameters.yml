@@ -29,8 +29,7 @@ split_samples_parameters:
     # the read 2 component you're interested in and want to keep (e.g. from nucleotides 0 to 30 is usual for umi + sample barcode)
     r2_part: [0, 30]
     #start and end of expected consensus sequence for QC'ing reads as junk or not
-    consensus_pos_start: 37
-    consensus_pos_end: 42
+    consensus_pos: [37, 42]
     # consensus sequence
     consensus_seq: GCGGC
 

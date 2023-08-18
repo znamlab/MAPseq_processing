@@ -12,6 +12,7 @@ import gzip
 from znamutils import slurm_it
 import yaml
 import sys
+import ast
 
 
 # %%
@@ -42,7 +43,10 @@ def load_parameters(directory="root"):
     with open(parameters_file, "r") as f:
         parameters = flatten_dict(yaml.safe_load(f))
     return parameters
-#%%
+
+
+# %%
+
 
 def initialise_flz(
     MOUSE, PROJECT
@@ -64,7 +68,7 @@ def initialise_flz(
     module_list=["FASTX-Toolkit"],
     slurm_options=dict(ntasks=1, time="72:00:00", mem="50G", partition="cpu"),
 )
-def split_samples(verbose=1, r1_part=None, r2_part=None):
+def split_samples(verbose=1):
     """Split raw fastq data according to sample barcodes
 
     This unzips raw fastq.gz files, cuts the two reads if needed (using `r1_part` and
@@ -132,6 +136,8 @@ def split_samples(verbose=1, r1_part=None, r2_part=None):
             )
         else:
             read_files[read_number] = fastq_files[good_file[0]]
+    r1_part = ast.literal_eval(parameters["r1_part"])
+    r2_part = ast.literal_eval(parameters["r2_part"])
     run_bc_splitter(
         read1_file=read_files[1],
         read2_file=read_files[2],
