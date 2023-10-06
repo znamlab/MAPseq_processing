@@ -11,8 +11,6 @@ import subprocess
 import gzip
 from znamutils import slurm_it
 import yaml
-import sys
-import ast
 
 
 # %%
@@ -136,8 +134,9 @@ def split_samples(verbose=1):
             )
         else:
             read_files[read_number] = fastq_files[good_file[0]]
-    r1_part = ast.literal_eval(parameters["r1_part"])
-    r2_part = ast.literal_eval(parameters["r2_part"])
+    r1_part = tuple(parameters["r1_part"])
+    r2_part = tuple(parameters["r2_part"])
+    consensus_pos = tuple(parameters["consensus_pos"])
     run_bc_splitter(
         read1_file=read_files[1],
         read2_file=read_files[2],
@@ -147,8 +146,7 @@ def split_samples(verbose=1):
         r2_part=r2_part,
         output_dir=output_dir,
         verbose=1,
-        consensus_pos_start=parameters["consensus_pos_start"],
-        consensus_pos_end=parameters["consensus_pos_end"],
+        consensus_pos=consensus_pos,
         consensus_seq=parameters["consensus_seq"],
     )
     # remove fastq files:
@@ -215,8 +213,7 @@ def run_bc_splitter(
     r2_part=None,
     output_dir=None,
     verbose=1,
-    consensus_pos_start=37,
-    consensus_pos_end=42,
+    consensus_pos=(37, 42),
     consensus_seq="GCGGC",
 ):
     """Split samples using Barcode splitter
@@ -237,8 +234,7 @@ def run_bc_splitter(
             will save in the current working directory
         verbose (int): Level of feedback printed. 0 for nothing, 1 for steps,
             2 for steps and full output
-        consensus_pos_start (int): start of expected consensus sequence for QC'ing reads as junk or not
-        consensus_pos_end (int): end of expected consensus sequence for QC'ing reads as junk or not
+        consensus_pos (tuple)): start and end of expected consensus sequence for QC'ing reads as junk or not
         consensus_seq: consensus sequence that you would expect in reads
 
     Returns:
@@ -265,7 +261,7 @@ def run_bc_splitter(
         n_reads = 1
         for il, (r1, r2) in enumerate(zip(read1, read2)):
             if il % 4 == 1:
-                if r1[consensus_pos_start:consensus_pos_end] == consensus_seq:
+                if r1[consensus_pos[0] : consensus_pos[1]] == consensus_seq:
                     # crop sequence if needed
                     if r1_part is not None:
                         r1 = r1[r1_part[0] : r1_part[1]]
@@ -354,8 +350,9 @@ def preprocess_reads(directory, barcode_range, max_reads_per_correction=10000000
                 if len(raw_bc) > max_reads_per_correction:
                     # if the size of the barcode table is huge, we'll process the less diverse neuron barcodes first in a bigger memory job,
                     # then we'll process UMI's a few barcodes at a time
+                    print(f"{barcode_file} is big. Sending job for separate processing")
                     big_mem_job = process_barcode_tables(
-                        barcode=barcode_file,
+                        barcode=str(barcode_file),
                         directory=directory,
                         big_mem="yes",
                         use_slurm=True,
@@ -370,7 +367,7 @@ def preprocess_reads(directory, barcode_range, max_reads_per_correction=10000000
                         use_slurm=False,
                     )
             else:
-                print(f"nothing in {barcode_file}")
+                print(f"Nothing in {barcode_file}")
     job_list = ":".join(map(str, job_list))
     join_tabs_and_split(
         directory=str(directory_path.parent),
@@ -381,10 +378,11 @@ def preprocess_reads(directory, barcode_range, max_reads_per_correction=10000000
     )
 
 
+# %%
 @slurm_it(
     conda_env="MAPseq_processing",
     module_list=None,
-    slurm_options=dict(ntasks=1, time="72:00:00", mem="350G", partition="cpu"),
+    slurm_options=dict(ntasks=1, time="72:00:00", mem="250G", partition="cpu"),
 )
 def process_barcode_tables(barcode, directory, big_mem):
     """Function to process the UMI and barcode sequences, removing homopolymers before calling error correction. If the sample barcode has a large number
@@ -490,6 +488,7 @@ def error_correct_sequence(reads, sequence_type):
     return barcode_tab
 
 
+# %%
 @slurm_it(
     conda_env="MAPseq_processing",
     module_list=None,
@@ -671,7 +670,7 @@ def combine_switch_tables(template_sw_directory):
 @slurm_it(
     conda_env="MAPseq_processing",
     module_list=None,
-    slurm_options=dict(ntasks=1, time="72:00:00", mem="350G", partition="cpu"),
+    slurm_options=dict(ntasks=1, time="72:00:00", mem="250G", partition="cpu"),
 )
 def combineUMIandBC(
     directory,
