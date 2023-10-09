@@ -333,7 +333,8 @@ def preprocess_reads(directory, barcode_range, max_reads_per_correction=10000000
     directory_path = pathlib.Path(directory)
     job_list = []
     parameters = load_parameters(directory=directory_path.parent)
-    for x in range(barcode_range):
+    barcode_range = tuple(parameters["barcode_range"])
+    for x in range(barcode_range[0], barcode_range[1] +1, 1):
         barcode_num = "BC" + str(x + 1) + ".txt"
         barcode_file = directory_path.joinpath(barcode_num)
         print(
@@ -701,7 +702,7 @@ def combineUMIandBC(
     spike_in_identifier = parameters["spike_in_identifier"]
     neuron_identifier = parameters["neuron_identifier"]
     UMI_cutoff = parameters["UMI_cutoff"]
-    barcode_file_range = parameters["barcode_range"]
+    barcode_file_range = tuple(parameters["barcode_range"])
     template_switch_abundance = parameters["template_switch_abundance"]
     neuron_bc_length = parameters["spikneuron_bc_lengthe_in_identifier"]
     dir_path = pathlib.Path(directory)
@@ -720,7 +721,7 @@ def combineUMIandBC(
         switches["1st_abundant"] / switches["2nd_abundant"] > template_switch_abundance
     ].set_index("UMI")
 
-    for i in range(barcode_file_range):
+    for i in range(barcode_file_range[0], barcode_file_range[1] +1, 1):
         barcode = f"BC{i+1}"
         sample_file = dir_path / f"corrected_{barcode}.csv"
         if os.path.isfile(sample_file):
@@ -811,7 +812,7 @@ def combineUMIandBC(
     module_list=None,
     slurm_options=dict(ntasks=1, time="48:00:00", mem="50G", partition="cpu"),
 )
-def barcode_matching(sorting_directory, barcode_range):
+def barcode_matching(sorting_directory):
     """
     Function to identify matching barcodes between samples
     Args: sorting directory =sorting directory where bowtieoutput files are saved
@@ -830,8 +831,9 @@ def barcode_matching(sorting_directory, barcode_range):
         all_seq.value_counts().rename_axis("sequence").reset_index(name="counts")
     )
     # tabulate counts of each barcode in each sample area
-
-    samples = list(range(1, barcode_range + 1))
+    parameters = load_parameters(directory=sorting_dir.parent)
+    barcode_range = tuple(parameters['barcode_range'])
+    samples = list(range(barcode_range[0], barcode_range[1] +1, 1)
     zeros = np.zeros(shape=(len(all_seq_unique["sequence"]), len(samples)))
     barcodes_across_sample = pd.DataFrame(zeros, columns=samples)
     barcodes_across_sample = barcodes_across_sample.set_index(

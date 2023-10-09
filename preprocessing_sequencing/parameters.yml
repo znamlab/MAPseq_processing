@@ -53,7 +53,7 @@ UMI_collapse_parameters:
   template_switch_abundance: 10
   # number of unique umi's to process at once per job (30000 seems to be the sweet spot for analysis to finish in a few hours)
   num_umi: 30000
-  # number of barcode file to loop through
-  barcode_range: 91
+  # start and end of barcode file to loop through
+  barcode_range: [1, 91]
   # if you have resequenced some of the dataset (e.g. to get more reads, you can choose whether to pause after the collapsing and template switcing part to reorganise/combine files before performing barcode matching)
   pause_before_matching: yes
