@@ -13,9 +13,6 @@ from znamutils import slurm_it
 import yaml
 
 
-# %%
-
-
 def load_parameters(directory="root"):
     """Load the parameters yaml file containting all the parameters required for preprocessing MAPseq data
     Args:
@@ -41,9 +38,6 @@ def load_parameters(directory="root"):
     with open(parameters_file, "r") as f:
         parameters = flatten_dict(yaml.safe_load(f))
     return parameters
-
-
-# %%
 
 
 def initialise_flz(
@@ -334,8 +328,11 @@ def preprocess_reads(directory, barcode_range, max_reads_per_correction=10000000
     job_list = []
     parameters = load_parameters(directory=directory_path.parent)
     barcode_range = tuple(parameters["barcode_range"])
-    for x in range(barcode_range[0], barcode_range[1] +1, 1):
-        barcode_num = "BC" + str(x + 1) + ".txt"
+    day = datetime.now().strftime("%Y-%m-%d")
+    slurm_folder = parameters["SLURM_DIR"] + f"/{day}"
+    pathlib.Path(slurm_folder).mkdir(parents=True, exist_ok=True)
+    for x in range(barcode_range[0], barcode_range[1] + 1, 1):
+        barcode_num = "BC" + str(x) + ".txt"
         barcode_file = directory_path.joinpath(barcode_num)
         print(
             f"Starting collapsing for {barcode_file.stem} at {datetime.now()}",
@@ -352,12 +349,16 @@ def preprocess_reads(directory, barcode_range, max_reads_per_correction=10000000
                     # if the size of the barcode table is huge, we'll process the less diverse neuron barcodes first in a bigger memory job,
                     # then we'll process UMI's a few barcodes at a time
                     print(f"{barcode_file} is big. Sending job for separate processing")
+                    subfolder = pathlib.Path(slurm_folder).joinpath(
+                        f'{datetime.now().strftime("%H:%M:%S")}'
+                    )
+                    pathlib.Path(subfolder).mkdir(parents=True, exist_ok=True)
                     big_mem_job = process_barcode_tables(
                         barcode=str(barcode_file),
                         directory=directory,
                         big_mem="yes",
                         use_slurm=True,
-                        slurm_folder=parameters["SLURM_DIR"],
+                        slurm_folder=subfolder,
                     )
                     job_list.append(big_mem_job)
                 else:
@@ -379,7 +380,6 @@ def preprocess_reads(directory, barcode_range, max_reads_per_correction=10000000
     )
 
 
-# %%
 @slurm_it(
     conda_env="MAPseq_processing",
     module_list=None,
@@ -410,6 +410,7 @@ def process_barcode_tables(barcode, directory, big_mem):
     # error correct neuron barcodes first (not as diverse as umi's, so whole table processed for big ones)
     int_file = corrected_path.joinpath(f"neuron_only_corrected_{barcode_file.stem}.pkl")
     if pathlib.Path(int_file).is_file() == False:
+        print(f"Looking at {barcode_file}")
         neuron_bc_corrected = error_correct_sequence(
             reads=barcode_tab, sequence_type="neuron"
         )
@@ -417,8 +418,9 @@ def process_barcode_tables(barcode, directory, big_mem):
             neuron_bc_corrected.to_pickle(
                 int_file
             )  # if it's a big file, save intermediate in case job runs out of time
-
-    if pathlib.Path(int_file).is_file():
+            print("Saved intermediate pkl file", flush=True)
+    elif pathlib.Path(int_file).is_file():
+        print("loading intermediate pkl file", flush=True)
         neuron_bc_corrected = pd.read_pickle(int_file)
     neuron_list = neuron_bc_corrected["corrected_sequences_neuron"].unique()
     neuron_bc_corrected["corrected_sequences_umi"] = "NA"
@@ -426,13 +428,19 @@ def process_barcode_tables(barcode, directory, big_mem):
     neuron_list_subsets = [
         neuron_list[i : i + n] for i in range(0, len(neuron_list), n)
     ]
+    print("Starting correction of umis from corrected neuron barcodes", flush=True)
+    x = 1
     for sequence_str in neuron_list_subsets:
         # for sequence_str in neuron_list:
+        if big_mem == "yes" and x % (len(neuron_list_subsets) // 10) == 0:
+            progress = x / len(neuron_list_subsets)
+            print(
+                f"At {progress:.0%} percent completion ({x}/{len(neuron_list_subsets)})"
+            )
+        x = x + 1
         neuron_bc_analysed = neuron_bc_corrected[
-            neuron_bc_corrected["corrected_sequences_neuron"].isin(
-                sequence_str
-            )  # str.contains(sequence_str)
-        ]
+            neuron_bc_corrected["corrected_sequences_neuron"].isin(sequence_str)
+        ]  # str.contains(sequence_str)
         chunk_analysed = error_correct_sequence(
             reads=neuron_bc_analysed, sequence_type="umi"
         )
@@ -445,6 +453,7 @@ def process_barcode_tables(barcode, directory, big_mem):
     print(f"Corrected {corrected} out of  {total} sequence counts for umis")
     if big_mem == "yes":
         os.remove(int_file)
+        print("Removed intermediate pkl file", flush=True)
     new_file = corrected_path.joinpath(f"corrected_{barcode_file.stem}.csv")
     neuron_bc_corrected.to_csv(new_file)
     print(f"Finished at {datetime.now()}")
@@ -489,7 +498,6 @@ def error_correct_sequence(reads, sequence_type):
     return barcode_tab
 
 
-# %%
 @slurm_it(
     conda_env="MAPseq_processing",
     module_list=None,
@@ -503,18 +511,20 @@ def join_tabs_and_split(directory, start_from_beginning):
         start_from_beginning (str): 'yes' or 'no' whether want to start from combining files or not
         num_umi (int): number of unique umi's to process at once per job
     """
-    reads_path = pathlib.Path(directory) / "preprocess_seq_corrected"
+    reads_path = pathlib.Path(directory) / "preprocessed_seq_corrected"
     template_dir = pathlib.Path(directory) / "template_switching"
     pathlib.Path(template_dir).mkdir(parents=True, exist_ok=True)
     chunk_dir = template_dir.joinpath("chunks")
     parameters = load_parameters(directory=directory)
-    num_umi = parameters[num_umi]
+    day = datetime.now().strftime("%Y-%m-%d")
+    slurm_folder = parameters["SLURM_DIR"] + f"/{day}"
+    pathlib.Path(slurm_folder).mkdir(parents=True, exist_ok=True)
     pathlib.Path(chunk_dir).mkdir(parents=True, exist_ok=True)
     if start_from_beginning == "yes":
         barcode_sequences = pd.DataFrame(
             columns=["corrected_neuron", "corrected_UMI", "sample"]
         )
-        print("starting combining samples into one big file", flush=True)
+        print("Starting combining samples into one big file", flush=True)
         for file in os.listdir(reads_path):
             barcode_file = reads_path / file
             if barcode_file.stem.startswith("corrected_"):
@@ -529,20 +539,25 @@ def join_tabs_and_split(directory, start_from_beginning):
                 )
                 barcode_sequences = pd.concat([barcode_sequences, new_tab])
         print(
-            "finished combining samples into one big file, now sending jobs for umi cross barcode counting",
+            "Finished combining samples into one big file, now sending jobs for umi cross barcode counting",
             flush=True,
         )
         barcode_sequences.to_csv(template_dir / "template_switching_all_seq.csv")
     if start_from_beginning == "no":
-        print("reading full table combined", flush=True)
+        print("Reading full table combined", flush=True)
         barcode_sequences = pd.read_csv(template_dir / "template_switching_all_seq.csv")
     UMI_list = barcode_sequences["corrected_UMI"].unique()
     neuron_list_subsets = [
-        UMI_list[i : i + num_umi] for i in range(0, len(UMI_list), num_umi)
+        UMI_list[i : i + parameters[num_umi]]
+        for i in range(0, len(UMI_list), parameters[num_umi])
     ]
     iteration = 0
     job_list = []
     for sequence_str in neuron_list_subsets:
+        subfolder = pathlib.Path(slurm_folder).joinpath(
+            f'{datetime.now().strftime("%H:%M:%S")}'
+        )
+        pathlib.Path(subfolder).mkdir(parents=True, exist_ok=True)
         table_chunk = barcode_sequences[
             barcode_sequences["corrected_UMI"].isin(sequence_str)
         ]
@@ -553,19 +568,19 @@ def join_tabs_and_split(directory, start_from_beginning):
             directory=str(template_dir),
             chunk=table_name,
             use_slurm=True,
-            slurm_folder=parameters["SLURM_DIR"],
+            slurm_folder=subfolder,
         )
         job_list.append(table_chunk_job)
     job_list = ":".join(map(str, job_list))
     print(
-        "starting combining UMI and neuron barcodes. Note: should check UMI distribution and alter parameters UMI cutoff in yaml file in processed directory before going ahead"
+        "Finished template switching analysis. Now open 'determine_UMI_cutoff.ipynb' notebook to check UMI and template sharing distributio and alter parameters UMI cutoff and if necessary template_switch_abundance threshold in yaml file in processed directory before going ahead"
     )
-    combineUMIandBC(
-        directory=str(template_dir.parent),
-        use_slurm=True,
-        slurm_folder=parameters["SLURM_DIR"],
-        job_dependency=job_list,
-    )
+    # combineUMIandBC(
+    #   directory=str(template_dir.parent),
+    #  use_slurm=True,
+    # slurm_folder=parameters["SLURM_DIR"],
+    # job_dependency=job_list,
+    # )
 
 
 @slurm_it(
@@ -721,7 +736,7 @@ def combineUMIandBC(
         switches["1st_abundant"] / switches["2nd_abundant"] > template_switch_abundance
     ].set_index("UMI")
 
-    for i in range(barcode_file_range[0], barcode_file_range[1] +1, 1):
+    for i in range(barcode_file_range[0], barcode_file_range[1] + 1, 1):
         barcode = f"BC{i+1}"
         sample_file = dir_path / f"corrected_{barcode}.csv"
         if os.path.isfile(sample_file):
@@ -832,8 +847,8 @@ def barcode_matching(sorting_directory):
     )
     # tabulate counts of each barcode in each sample area
     parameters = load_parameters(directory=sorting_dir.parent)
-    barcode_range = tuple(parameters['barcode_range'])
-    samples = list(range(barcode_range[0], barcode_range[1] +1, 1)
+    barcode_range = tuple(parameters["barcode_range"])
+    samples = list(range(barcode_range[0], barcode_range[1] + 1, 1))
     zeros = np.zeros(shape=(len(all_seq_unique["sequence"]), len(samples)))
     barcodes_across_sample = pd.DataFrame(zeros, columns=samples)
     barcodes_across_sample = barcodes_across_sample.set_index(
