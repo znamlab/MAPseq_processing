@@ -548,8 +548,8 @@ def join_tabs_and_split(directory, start_from_beginning):
         barcode_sequences = pd.read_csv(template_dir / "template_switching_all_seq.csv")
     UMI_list = barcode_sequences["corrected_UMI"].unique()
     neuron_list_subsets = [
-        UMI_list[i : i + parameters[num_umi]]
-        for i in range(0, len(UMI_list), parameters[num_umi])
+        UMI_list[i : i + parameters["num_umi"]]
+        for i in range(0, len(UMI_list), parameters["num_umi"])
     ]
     iteration = 0
     job_list = []
