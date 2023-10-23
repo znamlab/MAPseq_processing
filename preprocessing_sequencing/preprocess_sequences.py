@@ -373,7 +373,6 @@ def preprocess_reads(directory, barcode_range, max_reads_per_correction=10000000
     job_list = ":".join(map(str, job_list))
     join_tabs_and_split(
         directory=str(directory_path.parent),
-        start_from_beginning="yes",
         use_slurm=True,
         slurm_folder=parameters["SLURM_DIR"],
         job_dependency=job_list,
@@ -503,12 +502,11 @@ def error_correct_sequence(reads, sequence_type):
     module_list=None,
     slurm_options=dict(ntasks=1, time="48:00:00", mem="350G", partition="hmem"),
 )
-def join_tabs_and_split(directory, start_from_beginning):
+def join_tabs_and_split(directory):
     """
     Function to generate a table to check the amount of template switching across entire sample set, split into smaller chunks for processing in separate jobs
     Args:
         directory (str): path where the sequencing/pcr corrected sequences are kept
-        start_from_beginning (str): 'yes' or 'no' whether want to start from combining files or not
         num_umi (int): number of unique umi's to process at once per job
     """
     reads_path = pathlib.Path(directory) / "preprocessed_seq_corrected"
@@ -520,7 +518,7 @@ def join_tabs_and_split(directory, start_from_beginning):
     slurm_folder = parameters["SLURM_DIR"] + f"/{day}"
     pathlib.Path(slurm_folder).mkdir(parents=True, exist_ok=True)
     pathlib.Path(chunk_dir).mkdir(parents=True, exist_ok=True)
-    if start_from_beginning == "yes":
+    if pathlib.Path(template_dir / "template_switching_all_seq.csv").is_file() == False:
         barcode_sequences = pd.DataFrame(
             columns=["corrected_neuron", "corrected_UMI", "sample"]
         )
@@ -543,7 +541,7 @@ def join_tabs_and_split(directory, start_from_beginning):
             flush=True,
         )
         barcode_sequences.to_csv(template_dir / "template_switching_all_seq.csv")
-    if start_from_beginning == "no":
+    if pathlib.Path(template_dir / "template_switching_all_seq.csv").is_file() == True:
         print("Reading full table combined", flush=True)
         barcode_sequences = pd.read_csv(template_dir / "template_switching_all_seq.csv")
     UMI_list = barcode_sequences["corrected_UMI"].unique()
@@ -566,7 +564,7 @@ def join_tabs_and_split(directory, start_from_beginning):
         table_chunk.to_csv(table_name, index=False)
         table_chunk_job = switch_analysis(
             directory=str(template_dir),
-            chunk=table_name,
+            chunk=str(table_name),
             use_slurm=True,
             slurm_folder=subfolder,
         )
