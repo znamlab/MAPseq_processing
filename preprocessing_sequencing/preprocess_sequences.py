@@ -434,7 +434,7 @@ def process_barcode_tables(barcode, directory, big_mem):
         if big_mem == "yes" and x % (len(neuron_list_subsets) // 10) == 0:
             progress = x / len(neuron_list_subsets)
             print(
-                f"At {progress:.0%} percent completion ({x}/{len(neuron_list_subsets)})"
+                f"At {progress:.0%} percent completion ({x}/{len(neuron_list_subsets)} neuron barcode subsets)"
             )
         x = x + 1
         neuron_bc_analysed = neuron_bc_corrected[
@@ -670,7 +670,7 @@ def combine_switch_tables(template_sw_directory):
             "chunk",
         ]
     ).set_index("UMI")
-    print("starting combining samples into one big file", flush=True)
+    print("Starting combining samples into one big file", flush=True)
     for file in os.listdir(dir_path):
         barcode_file = dir_path / file
         if barcode_file.stem.startswith("template_switching_chunk_"):
