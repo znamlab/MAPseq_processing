@@ -349,16 +349,13 @@ def preprocess_reads(directory, barcode_range, max_reads_per_correction=10000000
                     # if the size of the barcode table is huge, we'll process the less diverse neuron barcodes first in a bigger memory job,
                     # then we'll process UMI's a few barcodes at a time
                     print(f"{barcode_file} is big. Sending job for separate processing")
-                    subfolder = pathlib.Path(slurm_folder).joinpath(
-                        f'{datetime.now().strftime("%H:%M:%S")}'
-                    )
-                    pathlib.Path(subfolder).mkdir(parents=True, exist_ok=True)
                     big_mem_job = process_barcode_tables(
                         barcode=str(barcode_file),
                         directory=directory,
                         big_mem="yes",
                         use_slurm=True,
-                        slurm_folder=subfolder,
+                        slurm_folder=slurm_folder,
+                        script_names=f"UMI_correction_{barcode_num}",
                     )
                     job_list.append(big_mem_job)
                 else:
@@ -434,7 +431,7 @@ def process_barcode_tables(barcode, directory, big_mem):
         if big_mem == "yes" and x % (len(neuron_list_subsets) // 10) == 0:
             progress = x / len(neuron_list_subsets)
             print(
-                f"At {progress:.0%} percent completion ({x}/{len(neuron_list_subsets)} neuron barcode subsets)"
+                f"At {progress:.0%} percent completion ({x}/{len(neuron_list_subsets)})"
             )
         x = x + 1
         neuron_bc_analysed = neuron_bc_corrected[
@@ -549,24 +546,19 @@ def join_tabs_and_split(directory):
         UMI_list[i : i + parameters["num_umi"]]
         for i in range(0, len(UMI_list), parameters["num_umi"])
     ]
-    iteration = 0
     job_list = []
-    for sequence_str in neuron_list_subsets:
-        subfolder = pathlib.Path(slurm_folder).joinpath(
-            f'{datetime.now().strftime("%H:%M:%S")}'
-        )
-        pathlib.Path(subfolder).mkdir(parents=True, exist_ok=True)
+    for iteration, sequence_str in enumerate(neuron_list_subsets):
         table_chunk = barcode_sequences[
             barcode_sequences["corrected_UMI"].isin(sequence_str)
         ]
-        iteration = iteration + 1
         table_name = chunk_dir / f"chunk_{iteration}.csv"
         table_chunk.to_csv(table_name, index=False)
         table_chunk_job = switch_analysis(
             directory=str(template_dir),
             chunk=str(table_name),
             use_slurm=True,
-            slurm_folder=subfolder,
+            slurm_folder=slurm_folder,
+            script_names=f"template_switching_analysis_{iteration}",
         )
         job_list.append(table_chunk_job)
     job_list = ":".join(map(str, job_list))
@@ -686,7 +678,7 @@ def combine_switch_tables(template_sw_directory):
     module_list=None,
     slurm_options=dict(ntasks=1, time="72:00:00", mem="250G", partition="cpu"),
 )
-def combineUMIandBC(
+def combine_UMI_and_BC(
     directory,
     spike_in_identifier,
     neuron_identifier,
