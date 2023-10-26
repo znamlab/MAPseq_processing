@@ -563,7 +563,7 @@ def join_tabs_and_split(directory):
         job_list.append(table_chunk_job)
     job_list = ":".join(map(str, job_list))
     print(
-        "Finished template switching analysis. Now open 'determine_UMI_cutoff.ipynb' notebook to check UMI and template sharing distributio and alter parameters UMI cutoff and if necessary template_switch_abundance threshold in yaml file in processed directory before going ahead"
+        "Finished template switching analysis. After jobs finished, open 'determine_UMI_cutoff_and_template_switching_thresholds.ipynb' notebook to check UMI and template sharing distribution and alter parameters UMI cutoff and if necessary template_switch_abundance threshold in yaml file in processed directory, then running final preprocessing function"
     )
     # combineUMIandBC(
     #   directory=str(template_dir.parent),
@@ -678,15 +678,7 @@ def combine_switch_tables(template_sw_directory):
     module_list=None,
     slurm_options=dict(ntasks=1, time="72:00:00", mem="250G", partition="cpu"),
 )
-def combine_UMI_and_BC(
-    directory,
-    spike_in_identifier,
-    neuron_identifier,
-    UMI_cutoff=2,
-    barcode_file_range=96,
-    template_switch_abundance=10,
-    neuron_bc_length=32,
-):
+def combine_UMI_and_BC(directory):
     """
     N.B. visualise UMI count distribution first before running this step, as it's necessary to determin UMI cut-off parameters
     Function to combine corrected barcodes and UMI's for each read and collect value counts.
@@ -709,7 +701,7 @@ def combine_UMI_and_BC(
     UMI_cutoff = parameters["UMI_cutoff"]
     barcode_file_range = tuple(parameters["barcode_range"])
     template_switch_abundance = parameters["template_switch_abundance"]
-    neuron_bc_length = parameters["spikneuron_bc_lengthe_in_identifier"]
+    neuron_bc_length = parameters["neuron_bc_length"]
     dir_path = pathlib.Path(directory)
     out_dir = dir_path.joinpath("Final_processed_sequences")
     pathlib.Path(out_dir).mkdir(parents=True, exist_ok=True)
@@ -810,6 +802,7 @@ def combine_UMI_and_BC(
             neuron_counts.to_csv(to_save_BC)
         else:
             print(f"file not there for {barcode}")
+    print(f"Finished final pre-preprocessing step at {datetime.now()}")
 
 
 @slurm_it(
