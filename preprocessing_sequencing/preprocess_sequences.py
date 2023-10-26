@@ -703,7 +703,7 @@ def combine_UMI_and_BC(directory):
     template_switch_abundance = parameters["template_switch_abundance"]
     neuron_bc_length = parameters["neuron_bc_length"]
     dir_path = pathlib.Path(directory)
-    out_dir = dir_path.joinpath("Final_processed_sequences")
+    out_dir = dir_path.joinpath("final_processed_sequences")
     pathlib.Path(out_dir).mkdir(parents=True, exist_ok=True)
     # load template switching table and generate a list of UMI's to remove
     switching_tab = combine_switch_tables(
@@ -720,7 +720,7 @@ def combine_UMI_and_BC(directory):
 
     for i in range(barcode_file_range[0], barcode_file_range[1] + 1, 1):
         barcode = f"BC{i+1}"
-        sample_file = dir_path / f"corrected_{barcode}.csv"
+        sample_file = dir_path / f"preprocessed_seq_corrected/corrected_{barcode}.csv"
         if os.path.isfile(sample_file):
             print("processing %s" % barcode, flush=True)
             sample_table = pd.read_csv(sample_file)
