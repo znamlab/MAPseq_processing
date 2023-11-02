@@ -355,7 +355,7 @@ def preprocess_reads(directory, barcode_range, max_reads_per_correction=10000000
                         big_mem="yes",
                         use_slurm=True,
                         slurm_folder=slurm_folder,
-                        script_names=f"UMI_correction_{barcode_num}",
+                        scripts_name=f"UMI_correction_{barcode_num}",
                     )
                     job_list.append(big_mem_job)
                 else:
@@ -558,7 +558,7 @@ def join_tabs_and_split(directory):
             chunk=str(table_name),
             use_slurm=True,
             slurm_folder=slurm_folder,
-            script_names=f"template_switching_analysis_{iteration}",
+            scripts_name=f"template_switching_analysis_{iteration}",
         )
         job_list.append(table_chunk_job)
     job_list = ":".join(map(str, job_list))
