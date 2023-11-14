@@ -416,7 +416,7 @@ def process_barcode_tables(barcode, directory, big_mem):
             )  # if it's a big file, save intermediate in case job runs out of time
             print("Saved intermediate pkl file", flush=True)
     elif pathlib.Path(int_file).is_file():
-        print("loading intermediate pkl file", flush=True)
+        print("Loading intermediate pkl file", flush=True)
         neuron_bc_corrected = pd.read_pickle(int_file)
     neuron_list = neuron_bc_corrected["corrected_sequences_neuron"].unique()
     neuron_bc_corrected["corrected_sequences_umi"] = "NA"
@@ -425,15 +425,16 @@ def process_barcode_tables(barcode, directory, big_mem):
         neuron_list[i : i + n] for i in range(0, len(neuron_list), n)
     ]
     print("Starting correction of umis from corrected neuron barcodes", flush=True)
-    x = 1
-    for sequence_str in neuron_list_subsets:
+    for x, sequence_str in enumerate(neuron_list_subsets):
         # for sequence_str in neuron_list:
+        if x == 1:
+            print ('Doing first subset correction', flush=True)
+            tstart = datetime.now()
         if big_mem == "yes" and x % (len(neuron_list_subsets) // 10) == 0:
             progress = x / len(neuron_list_subsets)
             print(
-                f"At {progress:.0%} percent completion ({x}/{len(neuron_list_subsets)})"
+                f"At {progress:.0%} completion ({x}/{len(neuron_list_subsets)})", flush=True
             )
-        x = x + 1
         neuron_bc_analysed = neuron_bc_corrected[
             neuron_bc_corrected["corrected_sequences_neuron"].isin(sequence_str)
         ]  # str.contains(sequence_str)
@@ -441,6 +442,8 @@ def process_barcode_tables(barcode, directory, big_mem):
             reads=neuron_bc_analysed, sequence_type="umi"
         )
         neuron_bc_corrected.update(chunk_analysed)
+        if x == 1:
+            print (f'Finished first correction in {datetime.now()-tstart}', flush=True)
     corrected = sum(
         neuron_bc_corrected["umi_sequence"]
         != neuron_bc_corrected["corrected_sequences_umi"]
