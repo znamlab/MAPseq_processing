@@ -64,7 +64,7 @@ def initialise_flz(
     module_list=["FASTX-Toolkit"],
     slurm_options=dict(ntasks=1, time="72:00:00", mem="50G", partition="cpu"),
 )
-def split_samples(verbose=1):
+def split_samples(verbose=1, start_next_step=True):
     """Split raw fastq data according to sample barcodes
 
     This unzips raw fastq.gz files, cuts the two reads if needed (using `r1_part` and
@@ -92,6 +92,10 @@ def split_samples(verbose=1):
     Args:
         verbose (int): Level of feedback printed. 0 for nothing, 1 for steps,
             2 for steps and full output
+        start_next_step (bool): If True (default), will start the next step in the
+            pipeline (preprocess_reads)
+
+
 
     Returns:
         None
@@ -155,13 +159,17 @@ def split_samples(verbose=1):
     if verbose:
         tend = datetime.now()
         print("That took %s" % (tend - tstart), flush=True)
-    preprocess_reads(
-        directory=str(output_dir),
-        barcode_range=parameters["barcode_range"],
-        max_reads_per_correction=parameters["max_reads_per_correction"],
-        use_slurm=True,
-        slurm_folder=parameters["SLURM_DIR"],
-    )
+    
+    if start_next_step:
+        if verbose:
+            print("Starting next step", flush=True)
+        preprocess_reads(
+            directory=str(output_dir),
+            barcode_range=parameters["barcode_range"],
+            max_reads_per_correction=parameters["max_reads_per_correction"],
+            use_slurm=True,
+            slurm_folder=parameters["SLURM_DIR"],
+        )
 
 
 def unzip_fastq(source_dir, acq_id, target_dir=None, overwrite=True, verbose=1):
