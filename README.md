@@ -29,13 +29,14 @@ Puchades MA, Csucs G, Ledergerber D, Leergaard TB, Bjaalie JG (2019) Spatial reg
 
 ## Installation
 
-Should be easy enough. Clone the repo and install with pip. This requires to have access
-to the lab github repositories.
+Should be easy enough. However the environment *must* be called `MAPseq_processing`.
+Clone the repo and install with pip. This requires to have access to the lab github 
+repositories.
 I could not install `umi_tools` via pip (maybe because the python version was too
 recent), so I let conda deal with that
 
 ```
-conda create -n mapseq -c bioconda -c conda-forge umi_tools pip
-conda activate mapseq
+conda create -n MAPseq_processing -c bioconda -c conda-forge umi_tools pip
+conda activate MAPseq_processing
 pip install -e .
 ```
