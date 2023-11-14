@@ -73,7 +73,7 @@ def split_samples(verbose=1):
     The output directory will contain a .txt file per barcode and a file named
     `barcode_splitter_log.txt` containing the summary output from the fastx function.
 
-    Args:
+    Parameters read for param file:
         acq_id (str): Acquisition ID. Only file starting with this id will be unzipped
         barcode_file (str or Path): path to the file containing the list of barcodes
         raw_dir: (str or Path): Path to the folder containing the fastq.gz files. It
@@ -85,12 +85,13 @@ def split_samples(verbose=1):
         r1_part (None or (int, int)): [optional] part of the read 1 sequence to keep,
             None to keep the full read, [beginning, end] otherwise
         r2_part (int, int): [optional] same as r1_part but for read 2
-        verbose (int): Level of feedback printed. 0 for nothing, 1 for steps,
-            2 for steps and full output
        consensus_pos_start (int): start of expected consensus sequence for QC'ing reads as junk or not
        consensus_pos_end (int): end of expected consensus sequence for QC'ing reads as junk or not
        consensus_seq: consensus sequence that you would expect in reads
 
+    Args:
+        verbose (int): Level of feedback printed. 0 for nothing, 1 for steps,
+            2 for steps and full output
 
     Returns:
         None
