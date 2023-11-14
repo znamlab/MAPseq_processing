@@ -112,7 +112,7 @@ def split_samples(verbose=1):
     # make a copy of the parameters file in the processed folder
     parameters_copy = output_dir.parent / f"parameters.yml"
     shutil.copy(str(parameters_file), str(parameters_copy))
-    print(f"raw file is ")
+    print(f"raw file is ")  # ? What is this
     if verbose:
         tstart = datetime.now()
     fastq_files = unzip_fastq(
