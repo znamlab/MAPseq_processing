@@ -14,9 +14,13 @@ import yaml
 
 
 def load_parameters(directory="root"):
-    """Load the parameters yaml file containting all the parameters required for preprocessing MAPseq data
+    """Load the parameters yaml file containting all the parameters required for
+    preprocessing MAPseq data
+
     Args:
-    directory(str): directory where to load parameters from. Default 'root' for the default default parameters saved with the other scripts in the package folder. (this is changed later when it is save to the processsed fold of analysis)
+    directory (str): Directory where to load parameters from. Default 'root' for the
+        default parameters (found in `mapseq_preprocessing/parameters.py`).
+
     Returns:
         dict: contents of parameters.yml
     """
@@ -228,7 +232,8 @@ def run_bc_splitter(
             will save in the current working directory
         verbose (int): Level of feedback printed. 0 for nothing, 1 for steps,
             2 for steps and full output
-        consensus_pos (tuple)): start and end of expected consensus sequence for QC'ing reads as junk or not
+        consensus_pos (tuple)): start and end of expected consensus sequence for QC'ing
+            reads as junk or not
         consensus_seq: consensus sequence that you would expect in reads
 
     Returns:
@@ -266,7 +271,9 @@ def run_bc_splitter(
                     target.write("> {0}\n{1}".format(n_reads, full_read))
                     n_reads += 1
 
-    # split dataset according to inline indexes using fastx toolkit; this by default allows up to 1 missmatch. we could go higher if we want, though maybe not neccessary
+    # split dataset according to inline indexes using fastx toolkit; this by default
+    # allows up to 1 missmatch. we could go higher if we want, though maybe not
+    # neccessary
     # now run barcode splitter on that
     if verbose:
         t = datetime.now()
@@ -428,12 +435,13 @@ def process_barcode_tables(barcode, directory, big_mem):
     for x, sequence_str in enumerate(neuron_list_subsets):
         # for sequence_str in neuron_list:
         if x == 1:
-            print ('Doing first subset correction', flush=True)
+            print("Doing first subset correction", flush=True)
             tstart = datetime.now()
         if big_mem == "yes" and x % (len(neuron_list_subsets) // 10) == 0:
             progress = x / len(neuron_list_subsets)
             print(
-                f"At {progress:.0%} completion ({x}/{len(neuron_list_subsets)})", flush=True
+                f"At {progress:.0%} completion ({x}/{len(neuron_list_subsets)})",
+                flush=True,
             )
         neuron_bc_analysed = neuron_bc_corrected[
             neuron_bc_corrected["corrected_sequences_neuron"].isin(sequence_str)
@@ -443,7 +451,7 @@ def process_barcode_tables(barcode, directory, big_mem):
         )
         neuron_bc_corrected.update(chunk_analysed)
         if x == 1:
-            print (f'Finished first correction in {datetime.now()-tstart}', flush=True)
+            print(f"Finished first correction in {datetime.now()-tstart}", flush=True)
     corrected = sum(
         neuron_bc_corrected["umi_sequence"]
         != neuron_bc_corrected["corrected_sequences_umi"]
