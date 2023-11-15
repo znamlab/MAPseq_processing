@@ -13,11 +13,14 @@ setup(
     install_requires=[
         "numpy",
         "matplotlib",
+        "pandas",
         "scikit-learn",
         "flexiznam @ git+ssh://git@github.com/znamlab/flexiznam.git",
         "opencv-python",
         "bg_atlasapi",
         "seaborn",
         "znamutils @ git+ssh://git@github.com/znamlab/znamutils.git",
+        "umi_tools",
+        "yaml",
     ],
 )
