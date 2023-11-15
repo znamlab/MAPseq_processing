@@ -64,7 +64,7 @@ def initialise_flz(
     module_list=["FASTX-Toolkit"],
     slurm_options=dict(ntasks=1, time="72:00:00", mem="50G", partition="cpu"),
 )
-def split_samples(verbose=1):
+def split_samples(verbose=1, start_next_step=True):
     """Split raw fastq data according to sample barcodes
 
     This unzips raw fastq.gz files, cuts the two reads if needed (using `r1_part` and
@@ -73,7 +73,7 @@ def split_samples(verbose=1):
     The output directory will contain a .txt file per barcode and a file named
     `barcode_splitter_log.txt` containing the summary output from the fastx function.
 
-    Args:
+    Parameters read for param file:
         acq_id (str): Acquisition ID. Only file starting with this id will be unzipped
         barcode_file (str or Path): path to the file containing the list of barcodes
         raw_dir: (str or Path): Path to the folder containing the fastq.gz files. It
@@ -85,11 +85,16 @@ def split_samples(verbose=1):
         r1_part (None or (int, int)): [optional] part of the read 1 sequence to keep,
             None to keep the full read, [beginning, end] otherwise
         r2_part (int, int): [optional] same as r1_part but for read 2
-        verbose (int): Level of feedback printed. 0 for nothing, 1 for steps,
-            2 for steps and full output
        consensus_pos_start (int): start of expected consensus sequence for QC'ing reads as junk or not
        consensus_pos_end (int): end of expected consensus sequence for QC'ing reads as junk or not
        consensus_seq: consensus sequence that you would expect in reads
+
+    Args:
+        verbose (int): Level of feedback printed. 0 for nothing, 1 for steps,
+            2 for steps and full output
+        start_next_step (bool): If True (default), will start the next step in the
+            pipeline (preprocess_reads)
+
 
 
     Returns:
@@ -111,7 +116,7 @@ def split_samples(verbose=1):
     # make a copy of the parameters file in the processed folder
     parameters_copy = output_dir.parent / f"parameters.yml"
     shutil.copy(str(parameters_file), str(parameters_copy))
-    print(f"raw file is ")
+    print(f"raw file is ")  # ? What is this
     if verbose:
         tstart = datetime.now()
     fastq_files = unzip_fastq(
@@ -154,13 +159,17 @@ def split_samples(verbose=1):
     if verbose:
         tend = datetime.now()
         print("That took %s" % (tend - tstart), flush=True)
-    preprocess_reads(
-        directory=str(output_dir),
-        barcode_range=parameters["barcode_range"],
-        max_reads_per_correction=parameters["max_reads_per_correction"],
-        use_slurm=True,
-        slurm_folder=parameters["SLURM_DIR"],
-    )
+    
+    if start_next_step:
+        if verbose:
+            print("Starting next step", flush=True)
+        preprocess_reads(
+            directory=str(output_dir),
+            barcode_range=parameters["barcode_range"],
+            max_reads_per_correction=parameters["max_reads_per_correction"],
+            use_slurm=True,
+            slurm_folder=parameters["SLURM_DIR"],
+        )
 
 
 def unzip_fastq(source_dir, acq_id, target_dir=None, overwrite=True, verbose=1):
