@@ -350,35 +350,40 @@ def preprocess_reads(directory, barcode_range, max_reads_per_correction=10000000
             f"Starting collapsing for {barcode_file.stem} at {datetime.now()}",
             flush=True,
         )
-        if pathlib.Path(barcode_file).is_file():
-            if os.stat(barcode_file).st_size != 0:
-                raw_bc = pd.read_csv(
-                    barcode_file,
-                    delimiter="\t",
-                    skiprows=lambda x: (x != 0) and not x % 2,
-                )
-                if len(raw_bc) > max_reads_per_correction:
-                    # if the size of the barcode table is huge, we'll process the less diverse neuron barcodes first in a bigger memory job,
-                    # then we'll process UMI's a few barcodes at a time
-                    print(f"{barcode_file} is big. Sending job for separate processing")
-                    big_mem_job = process_barcode_tables(
-                        barcode=str(barcode_file),
-                        directory=directory,
-                        big_mem="yes",
-                        use_slurm=True,
-                        slurm_folder=slurm_folder,
-                        scripts_name=f"UMI_correction_{barcode_num}",
-                    )
-                    job_list.append(big_mem_job)
-                else:
-                    process_barcode_tables(
-                        barcode=barcode_file,
-                        directory=directory,
-                        big_mem="no",
-                        use_slurm=False,
-                    )
-            else:
-                print(f"Nothing in {barcode_file}")
+        if not pathlib.Path(barcode_file).is_file():
+            print(f"Bc file {barcode_file} not found")
+            continue
+        
+        if os.stat(barcode_file).st_size == 0:
+            print(f"Nothing in {barcode_file}")
+            continue
+        
+        raw_bc = pd.read_csv(
+            barcode_file,
+            delimiter="\t",
+            skiprows=lambda x: (x != 0) and not x % 2,
+        )
+        if len(raw_bc) > max_reads_per_correction:
+            # if the size of the barcode table is huge, we'll process the less diverse neuron barcodes first in a bigger memory job,
+            # then we'll process UMI's a few barcodes at a time
+            print(f"{barcode_file} is big. Sending job for separate processing")
+            big_mem_job = process_barcode_tables(
+                barcode=str(barcode_file),
+                directory=directory,
+                big_mem="yes",
+                use_slurm=True,
+                slurm_folder=slurm_folder,
+                scripts_name=f"UMI_correction_{barcode_num}",
+            )
+            job_list.append(big_mem_job)
+        else:
+            process_barcode_tables(
+                barcode=barcode_file,
+                directory=directory,
+                big_mem="no",
+                use_slurm=False,
+            )
+            
     job_list = ":".join(map(str, job_list))
     join_tabs_and_split(
         directory=str(directory_path.parent),
