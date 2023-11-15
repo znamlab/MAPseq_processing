@@ -319,18 +319,23 @@ def run_bc_splitter(
     slurm_options=dict(ntasks=1, time="72:00:00", mem="50G", partition="cpu"),
 )
 def preprocess_reads(directory, barcode_range, max_reads_per_correction=10000000):
-    """Function to run UMI-tools to correct PCR and sequencing errors for UMI's and neuron barcodes separately, then take UMI counts for each barcode.
+    """Function to run UMI-tools to correct PCR and sequencing errors for UMI's and 
+    neuron barcodes separately, then take UMI counts for each barcode.
 
     Args:
         directory (str): directory where sample splitting occurred
-        barcode_range (int): number of barcodes in list
-        max_reads_per_correction (int): maximum number of reads in sample for it to be processed using lower memory job. If higher than this, a separate job using the hmem node will be initiated (default 10000000)
+        barcode_range (tuple): Id of the first and last barcodes to process (1, 91) e.g.
+        max_reads_per_correction (int): maximum number of reads in sample for it to be 
+            processed using lower memory job. If higher than this, a separate job using 
+            the hmem node will be initiated (default 10000000)
 
     Returns:
         None.
     """
-    # for loop to error correct neuron barcodes and umi's sequentially, but if file is large, generate a separate script to process
-    # barcodes with higher memory, then take each neuron barcode and correct umi's within each
+    # for loop to error correct neuron barcodes and umi's sequentially, but if file is 
+    # large, generate a separate script to process barcodes with higher memory, then 
+    # take each neuron barcode and correct umi's within each
+
     directory_path = pathlib.Path(directory)
     job_list = []
     parameters = load_parameters(directory=directory_path.parent)
