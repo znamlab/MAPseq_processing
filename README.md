@@ -1,10 +1,8 @@
 # MAPseq_processing
 Pipeline for processing MAPseq NGS datasets
 
-Images of each LCM section are taken on the LCM microscope and aligned to same images used for registration so that LCM regions can be mapped.
-
 **Image naming conventions:**
-An overview section of each image must be taken before performing LCM. You must take the image on the side of the section that is most anterior and name each section to end with: "_s[number of section]". Numbering of sections goes from anterior to posterior - e.g. "_s001" for OB, even if you didn't slice this section first. For each lcm image, you must name the image by section first, then tube name e.g. "s001_tube1".
+Images of each LCM section are taken on the LCM microscope and aligned to same images used for registration so that LCM regions can be mapped. An overview section of each image must be taken before performing LCM. You must take the image on the side of the section that is most anterior and name each section to end with: "_s[number of section]". Numbering of sections goes from anterior to posterior - e.g. "_s001" for OB, even if you didn't slice this section first. For each lcm image, you must name the image by section first, then tube name e.g. "s001_tube1".
 
 **Generate ROI masks for each LCM sample:**
 First update LCM parameters yaml file with directory name, mouse name, project name etc.
