@@ -115,7 +115,7 @@ def convert_images(lcm_aligned_dir):
             allen_vox = [xa, ya, za, one]
             np.save(filename, allen_vox)
 
-def get_z_value(lcm_dir, OB_first, sections_with_nothing_before):
+def get_z_value(lcm_dir, OB_first):
     """
     Function to get z value for each section, so you can calculate volumes.
     Args:
@@ -129,37 +129,40 @@ def get_z_value(lcm_dir, OB_first, sections_with_nothing_before):
     add_z = pd.DataFrame(columns=['slice', 'amountz'], dtype=int)
     #need to change for mega thick last bit of cortex section, so extend ROI through 3slices
     saving_path = pathlib.Path(lcm_dir)/'allenccf/allen_ccf_coord'
+    sections_with_nothing_before = []
     for file in os.listdir(saving_path):
         if file.startswith('allen_ccf_converted_'):
             slice_name = file[20:24]
             slicenum = int(file[21:24])
-            if slice_name not in sections_with_nothing_before:
-                if OB_first == 'yes':
-                    slice_before= slicenum-1
-                elif OB_first == 'no':
-                    slice_before= slicenum+1
-                if slice_before >9:
-                    slicebefore_name = f's0{slice_before}'
-                if slice_before<10:
-                    slicebefore_name = f's00{slice_before}' 
+           # if OB_first == 'yes':
+            #    slice_before= slicenum-1
+           # elif OB_first == 'no':
+            slice_before= slicenum+1
+            if slice_before >9:
+                slicebefore_name = f's0{slice_before}'
+            if slice_before<10:
+                slicebefore_name = f's00{slice_before}' 
+            [x1a, y1a, z1a, one1] = np.load(saving_path/file)
+            if pathlib.Path(saving_path/f'allen_ccf_converted_{slicebefore_name}.npy').exists():
                 [x1a, y1a, z1a, one1] = np.load(saving_path/file)
                 [x2a, y2a, z2a, one2] = np.load(saving_path/f'allen_ccf_converted_{slicebefore_name}.npy')
                 dif = np.average(x2a.flatten()-x1a.flatten())
                 add_z= add_z.append({'slice': slice_name, 'amountz': dif},ignore_index=True)
+            else:
+                sections_with_nothing_before.append(slice_name)
     #for slices where the one's before are missing, extend them by the mean of slice z extensions for the others
     average_z = add_z['amountz'].mean()
     for slice in sections_with_nothing_before:
         add_z= add_z.append({'slice': slice, 'amountz': average_z},ignore_index=True)   
     return add_z
     
-def get_roi_vol(lcm_dir, add_z, allen_anno_path, z_moving_towards_OB):
+def get_roi_vol(lcm_dir, add_z, allen_anno_path):
     """
     Function to calculate roi volumes.
     Args:
         lcm_dir (str): parent directory for lcm reg
         add_z: table output from 'get_z_value' function
         allen_anno_path (str): path to where allen annotation nrrd file is
-        z_moving_towards_OB (str): 'yes' if you are extending in z direction starting from the image of the section towards the OB
     Returns:
         ROI_vol table    
     """
@@ -170,7 +173,7 @@ def get_roi_vol(lcm_dir, add_z, allen_anno_path, z_moving_towards_OB):
     roi_path = pathlib.Path(lcm_dir)/'rois'
     ROI_vol=pd.DataFrame()
     for region in os.listdir(roi_path):
-        if region.startswith("S0"):
+        if region.startswith("S0") or region.startswith("s0"):
             slice_name = f's{region[1:4]}'
             tube = region[5:len(region)].split('TUBE', 1)[1]
             tube =tube[:-4]
@@ -266,7 +269,7 @@ def combine_tubes(lcm_dir, ROI_vol_path):
     final_pix.tube = final_pix.tube.astype(float)
     finalpix1 =final_pix.sort_values('tube').reset_index()
     all_regions= np.unique(array)
-    np.save(lcm_dir/'region_col.npy', region_col)
-    finalpix1.to_pickle(lcm_dir/"finalpix1.pkl")
-    final_pix.to_pickle(lcm_dir/"finalpix.pkl")
+    np.save(str(f'{lcm_dir}/region_col.npy'), region_col)
+    finalpix1.to_pickle(f"{lcm_dir}/finalpix.pkl")
+    #final_pix.to_pickle(lcm_dir/"finalpix.pkl")
     
