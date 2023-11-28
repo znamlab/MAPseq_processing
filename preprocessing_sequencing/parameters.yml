@@ -1,14 +1,14 @@
 # general info for paths and flexilims
 general_expt_parameters:
-  NOTES: Source sites re-sequenced as UMI count low, therefore processing performed on both TUR5514A4 (all but source diluted 1/4) and TUR5514A4 (source only). Template corrected TUR5514A4 then replaced the same source barcode files that were undersequenced for the full run in a common folder for barcode matching step.
+  NOTES: 1st V1 HVA MAPseq brain
   #what is the name of the project folder that the raw and processed data is saved under?
-  PROJECT: turnerb_A1_MAPseq
+  PROJECT: turnerb_V1_MAPseq
   #mouse name on mcms
-  MOUSE: FIAA32.6a
+  MOUSE: BRAC8198.6a
   # the path to where txt file is that has sequences of sample barcodes
-  BARCODE_DIR: /nemo/lab/znamenskiyp/data/instruments/raw_data/projects/turnerb_A1_MAPseq/FIAA32.6a/Sequencing/sample_barcodes.txt
+  BARCODE_DIR: /nemo/lab/znamenskiyp/home/shared/projects/turnerb_V1_MAPseq/sample_barcodes.txt
   #path to raw directory where fastq files are
-  RAW_DIR: /nemo/lab/znamenskiyp/data/instruments/raw_data/projects/turnerb_A1_MAPseq/FIAA32.6a/Sequencing
+  RAW_DIR: /nemo/lab/znamenskiyp/home/shared/projects/turnerb_V1_MAPseq/BRAC8198.6a/Sequencing
   # path to prcoessed data
   PROCESSED_DIR: /nemo/lab/znamenskiyp/home/shared/projects
   #folder where to record slurm logs and dependencies
@@ -19,7 +19,7 @@ general_expt_parameters:
 # parameters for the sample splitting part
 split_samples_parameters:
     #the id name for the sequencing dataset
-    acq_id: TUR5514A4
+    acq_id: TUR4752A2
     #overwrite existing FASTQ files if existing?
     overwrite: True
     #number of mismatches to tolerate when matching RT primer sequences to reads
@@ -54,6 +54,6 @@ UMI_collapse_parameters:
   # number of unique umi's to process at once per job (30000 seems to be the sweet spot for analysis to finish in a few hours)
   num_umi: 30000
   # start and end of barcode file to loop through
-  barcode_range: [1, 91]
+  barcode_range: [1, 137]
   # if you have resequenced some of the dataset (e.g. to get more reads, you can choose whether to pause after the collapsing and template switcing part to reorganise/combine files before performing barcode matching)
   pause_before_matching: yes

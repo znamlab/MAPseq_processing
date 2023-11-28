@@ -115,12 +115,11 @@ def convert_images(lcm_aligned_dir):
             allen_vox = [xa, ya, za, one]
             np.save(filename, allen_vox)
 
-def get_z_value(lcm_dir, OB_first):
+def get_z_value(lcm_dir):
     """
     Function to get z value for each section, so you can calculate volumes.
     Args:
         lcm_dir (str): where parent LCM directory is
-        OB_first (str): 'yes' or 'no' - whether slicing direction is from OB to cerebellum or not 
         sections_with_nothing_before (list): list of sections (e.g.  ['s001', 's005']) whether there isn't a section in front of to take the z projection from
     Returns:
         table containing z projections
@@ -134,9 +133,6 @@ def get_z_value(lcm_dir, OB_first):
         if file.startswith('allen_ccf_converted_'):
             slice_name = file[20:24]
             slicenum = int(file[21:24])
-           # if OB_first == 'yes':
-            #    slice_before= slicenum-1
-           # elif OB_first == 'no':
             slice_before= slicenum+1
             if slice_before >9:
                 slicebefore_name = f's0{slice_before}'
@@ -212,10 +208,7 @@ def get_roi_vol(lcm_dir, add_z, allen_anno_path):
                 slices = -round(z_to_add/25)
             for x in range(slices):
                 if x >0:
-                    if z_moving_towards_OB == 'yes':
-                        newz = pixcoord[0]+x
-                    else:
-                        newz = pixcoord[0]-x #changed from plus to minus as going backwards
+                    newz = pixcoord[0]+x #changed from plus to minus as going backwards
                     slice = annotation[newz.flatten(), pixcoord[1].flatten(), pixcoord[2].flatten()].reshape(registered_slice.shape)
                     ROI_anno_add = slice*roi
                     ROI_anno = np.append(ROI_anno, ROI_anno_add)
@@ -240,6 +233,7 @@ def combine_tubes(lcm_dir, ROI_vol_path):
     Returns:
         None
     """
+    
     #combine volumes for LCM
     ROI_vol = pd.read_pickle(ROI_vol_path)
     final_pix = pd.DataFrame(columns=['tube', 'combined_pix', 'vol (um3)'], dtype=int)
@@ -273,3 +267,115 @@ def combine_tubes(lcm_dir, ROI_vol_path):
     finalpix1.to_pickle(f"{lcm_dir}/finalpix.pkl")
     #final_pix.to_pickle(lcm_dir/"finalpix.pkl")
     
+def get_acronymn(lcm_dir):
+    """
+    Function to take annotations, and get the acronymn for each of the brain areas that the ROIs are in
+    Args:
+        lcm_dir (str): the directory where the lcm registration info is all in
+    Returns:
+        None
+    """
+    #now generate empty table for the acronymns of all areas based on allen ccf
+    acronymncol = []
+    for id in regioncol:
+        if bg_atlas.structures[id]['acronym'][-1].isnumeric():
+            newid = bg_atlas.structures[id]["structure_id_path"][-2] #moving one level up the hierarchy if cortical layer
+        elif bg_atlas.structures[id]['acronym'][-2:]== '6a' or bg_atlas.structures[id]['acronym'][-2:]== '6b':
+            newid = bg_atlas.structures[id]["structure_id_path"][-2] #moving one level up the hierarchy if layer 6a/6b
+        else: newid = id
+        acronymn = bg_atlas.structures[newid]['acronym']
+        acronymncol.append(acronymn)
+    acronymncol= np.unique(acronymncol).tolist()
+    region_table = pd.DataFrame(columns = acronymncol, dtype =int)
+    #need to generate reference table to convert id's into higher bit of hierarchy.
+
+    for row, tube in finalpix1['tube'].iteritems():
+        regions = finalpix1.loc[row, 'combined_pix']
+        unique, counts = np.unique(regions, return_counts=True)
+        region_area = (counts/sum(counts))*(finalpix1.loc[row, 'vol (um3)'])
+        regions = unique[1:]
+        region_area = region_area[1:]
+        values = regions, region_area
+        region_table.at[row, 'sample'] = tube
+        index = -1
+        if regions.size != 0:
+            for id in np.nditer(regions):
+                index += 1
+                if bg_atlas.structures[id]['acronym'][-1].isnumeric():
+                    newid = bg_atlas.structures[id]["structure_id_path"][-2] #moving one level up the hierarchy if cortical layer
+                elif bg_atlas.structures[id]['acronym'][-2:]== '6a' or bg_atlas.structures[id]['acronym'][-2:]== '6b':
+                    newid = bg_atlas.structures[id]["structure_id_path"][-2] #moving one level up the hierarchy if layer 6a/6b
+                else: newid = id
+                acronym = bg_atlas.structures[newid]['acronym']
+                region_table.at[row, acronym]= region_area[index]
+    region_tab_contra = region_table
+#take areas in samples of contralateral hemisphere, and re-label as belonging to contra
+
+    for i, row in region_table.iterrows():
+        if region_table['sample'].iloc[i] in contra_samples:
+            for col in region_table.columns:
+                if col != 'sample'and col.startswith('Contra')==False and np.isnan(region_table[col].iloc[i])== False:
+                    newcol = 'Contra-' + col
+                    if newcol not in region_tab_contra:
+                        region_tab_contra[newcol]=0
+                    region_tab_contra[newcol].iloc[i] = region_table[col].iloc[i]
+                    region_tab_contra[col].iloc[i] =0
+                
+    nozero = region_table.fillna(0)
+    
+@slurm_it(
+    conda_env="MAPseq_processing_py39",
+    module_list=None,
+    slurm_options=dict(ntasks=1, time="24:00:00", mem="350G", partition="hmem"),
+)
+def group_ROI_coordinates(lcm_directory):
+    """
+    Function to take a template of allen atlas, then put all the roi's in appropriate coordinate positions, numbered by the sample number.
+    Args:
+        lcm_directory (str): path to where lcm directory is
+    Returns:
+        None
+    """
+#download av template to get shape
+    from allensdk.core.mouse_connectivity_cache import MouseConnectivityCache
+    mcc = MouseConnectivityCache(resolution=10)
+    avg_temp, meta = mcc.get_template_volume()
+
+    for ROI_to_look in os.listdir(ROI_path):
+    #region = ROI_path/'s015_TUBE6.png'
+    region = ROI_path/ROI_to_look
+    if ROI_to_look.startswith('s0') or ROI_to_look.startswith('S0'):
+        slicename = region.stem[1:4]
+        tube = region.stem[5:len(region.stem)].split('TUBE', 1)[1]
+        #if int(tube) in cortical_samples_table['Tube'].to_list():
+        [xa, ya, za, one] = np.load(reg_dir/f'allen_ccf_converted_s{slicename}.npy')
+        roi = plt.imread(ROI_path/f'{region}')
+        allencoord_roiya = roi*ya
+        allencoord_roiza = roi*za
+        allencoord_roixa= roi*xa
+        z_to_add = add_z.loc[add_z['slice'] == f's{slicename}', 'amountz'].iloc[0]
+
+        #convert the x, y, z coordinates to pixel
+        pixcoord = []
+        for i, axis in enumerate([allencoord_roixa, allencoord_roiya, allencoord_roiza]):
+            pixel = np.array(np.round(axis/10), dtype=int)
+            pixel[pixel <0] = 0
+            pixel[pixel >= empty_frame.shape[i]] = 0
+            pixcoord.append(pixel)
+        new_coord = np.zeros(pixcoord[0].shape)
+        z_add=0
+        for stack in range(int(np.round(z_to_add/10))):
+            for i in range(pixcoord[0].shape[0]):
+                for j in range(pixcoord[0].shape[1]):
+                    if pixcoord[0][i, j] != 0:
+                        new_coord[i,j] = (pixcoord[0][i, j])-z_add
+            z_add = z_add+1
+            for k in range(pixcoord[0].shape[0]):
+                for l in range(pixcoord[0].shape[1]):
+                    x = new_coord[k, l]
+                    y = pixcoord[1][k, l]
+                    z = pixcoord[2][k, l]
+                    if x != 0 and y != 0 and z != 0:
+                        empty_frame[int(x), int(y), int(z)] = int(tube)
+    np.save(f'{lcm_directory}/ROI_flatmap.npy', empty_frame)
+
