@@ -36,7 +36,7 @@ split_samples_parameters:
 #parameters for sequence correction
 sequence_processing_parameters:
   # maximum number of reads in sample for it to be processed using lower memory job. If higher than this, a separate job using the hmem node will be initiated (default 10000000)
-  max_reads_per_correction: 10000000
+  max_file_size: 100
   # length of neuron barcode (this is 32nt for original MAPseq sindbis virus library)
   neuron_bc_length: 32
   # from start of read 1 neuron barcode sequence, the sequence that differentiates a neuron barcode as belonging to spike-in RNA
