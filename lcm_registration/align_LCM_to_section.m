@@ -1,16 +1,38 @@
 
 %align lcm brain images to brain images used for registration
 
-files = dir('tubes/s001_*.jpg')
-rois = dir ('rois/')
+%directory where LCM files and rois are (doesn't matter if path for rois or
+%registered sections don't exist yet - you will create it)
+section = 'S061' % change this depending on which section you're looking at
+file_dir = '/Volumes/lab-znamenskiyp/home/shared/projects/turnerb_V1_MAPseq/BRAC8198.6a/LCM_registration/tubes/tubes/'
+roi_dir = '/Volumes/lab-znamenskiyp/home/shared/projects/turnerb_V1_MAPseq/BRAC8198.6a/LCM_registration/rois'
+section_dir = '/Volumes/lab-znamenskiyp/home/shared/projects/turnerb_V1_MAPseq/BRAC8198.6a/LCM_registration/sections/'
+registered_dir = '/Volumes/lab-znamenskiyp/home/shared/projects/turnerb_V1_MAPseq/BRAC8198.6a/LCM_registration/registered_lcm'
 
+files = dir(fullfile(file_dir, sprintf('%s*', section)))
+
+if ~exist(roi_dir, 'dir')
+    mkdir(roi_dir);
+    disp(['ROI directory created: ' roi_dir]);
+else
+    disp(['ROI directory already exists: ' roi_dir]);
+end
+
+if ~exist(registered_dir, 'dir')
+    mkdir(registered_dir);
+    disp(['Registered directory created: ' registered_dir]);
+else
+    disp(['Registered directory already exists: ' registered_dir]);
+end
+
+rois = dir (roi_dir)
 for k = 1(files)
     
-original = imread('sections/brain1_s001.jpg');
+original = imread(sprintf('%s%s.tif', section_dir, section));
 original = rgb2gray(original)
 
 toread = files(k).name;
-lcm1 = strcat('tubes/', toread)
+lcm1 = strcat(file_dir, toread)
 lcm = imread(lcm1);
 lcm = im2gray(lcm)
 
@@ -49,7 +71,7 @@ thetaRecovered = atan2(ss,sc)*180/pi
 outputView = imref2d(size(original));
 recovered  = imwarp(lcm,tform,'OutputView',outputView);
 [filepath,name,ext] = fileparts(toread)
-savelcm = strcat('registered_lcm/', name, '.jpg')
+savelcm = strcat(registered_dir, '/', name, '.jpg')
 imwrite (recovered, savelcm)
 
 figure;
@@ -64,19 +86,18 @@ roi = drawpolygon('Color','r');
 BW = createMask(roi);
 imshow(BW)
 
-tosave = strcat('rois/', name, '.png')
+tosave = strcat(roi_dir, '/', name, '.png')
 imwrite (BW, tosave)
 recovered1 = recovered
 end
 %now do for loop using previous registered LCM image as comparison for ROI
 %selection
 for k = 2: length(files)
-reg = dir ('registered_lcm/s001_*')    
-original = imread('sections/brain1_s001.jpg');
+original = imread(sprintf('%s%s.tif', section_dir, section));
 original = rgb2gray(original)
 
 toread = files(k).name;
-lcm1 = strcat('tubes/', toread)
+lcm1 = strcat(file_dir, toread)
 lcm = imread(lcm1);
 lcm = im2gray(lcm)
 
@@ -115,7 +136,7 @@ thetaRecovered = atan2(ss,sc)*180/pi
 outputView = imref2d(size(original));
 recovered  = imwarp(lcm,tform,'OutputView',outputView);
 [filepath,name,ext] = fileparts(toread)
-savelcm = strcat('registered_lcm/', name, '.jpg')
+savelcm = strcat(registered_dir, '/', name, '.jpg')
 imwrite (recovered, savelcm)
 
 figure;
@@ -131,8 +152,11 @@ roi = drawpolygon('Color','r');
 BW = createMask(roi);
 imshow(BW)
 
-tosave = strcat('rois/', name, '.png')
+tosave = strcat(roi_dir, '/', name, '.png')
 imwrite (BW, tosave)
 recovered1 = recovered
 end
+
+close all
+clear all
 

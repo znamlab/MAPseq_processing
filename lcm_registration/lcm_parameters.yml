@@ -1,0 +1,15 @@
+
+general_lcm_registration:
+  MOUSE: BRAC8198.6c
+  NOTES: 1st V1 HVA MAPseq brain
+  PROCESSED_DIR: /nemo/lab/znamenskiyp/home/shared/projects
+  PROJECT: turnerb_V1_MAPseq
+  RAW_DIR: /nemo/lab/znamenskiyp/home/shared/projects/turnerb_V1_MAPseq/BRAC8198.6c/Sequencing
+  SCRIPT_PATH: /camp/home/turnerb/home/users/turnerb/code/MAPseq_processing
+  SLURM_DIR: /camp/home/turnerb/slurm_logs
+registration_details:
+  OB_first: no
+  contra_samples: [27, 45, 46, 80, 90, 105, 118, 125]
+  sections_with_nothing_before: ['s061', 's057', 's028', 's017', 's015', 's011', 's008']
+  image_reverse_of_cutting_side: 'yes'
+
