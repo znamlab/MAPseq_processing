@@ -151,6 +151,98 @@ def get_z_value(lcm_dir):
     for slice in sections_with_nothing_before:
         add_z= add_z.append({'slice': slice, 'amountz': average_z},ignore_index=True)   
     return add_z
+
+@slurm_it(
+    conda_env="MAPseq_processing",
+    module_list=None,
+    slurm_options=dict(ntasks=1, time="72:00:00", mem="50G", partition="cpu"),
+)
+def get_euclidean_distance(directory):
+    """function to find z distance between slices
+    Args:
+        directory (str): directory where sections are
+    Returns:
+        None
+    """
+    add_z = pd.DataFrame(columns=['slice', 'amountz'], dtype=int)
+    saving_path = pathlib.Path(directory)/'allenccf/allen_ccf_coord'
+    sections_with_nothing_before =[]
+    sections_for_job = []
+    for file in os.listdir(saving_path):
+        slicenum = int(file[21:24])
+        slice_before= slicenum+1
+        if file.startswith('allen_ccf_converted_'):
+            slice_name = file[20:24]
+        if slice_before >9:
+            slicebefore_name = f's0{slice_before}'
+        if slice_before<10:
+            slicebefore_name = f's00{slice_before}' 
+        if pathlib.Path(saving_path/f'allen_ccf_converted_{slicebefore_name}.npy').exists():
+            sections_for_job.append(slice_name)
+        if not pathlib.Path(saving_path/f'allen_ccf_converted_{slicebefore_name}.npy').exists():
+            sections_with_nothing_before.append(slice_name)
+    add_z.to_pickle(f'{directory}/add_z.pkl')
+    job_list = []
+    for file in sections_for_job:
+        job = calc_euclidean_distance(directory = directory, slice = slice_name, slice_before='yes', use_slurm=True, scripts_name=f"z_{slice_name}", slurm_folder='/camp/home/turnerb/slurm_logs')
+        job_list.append(job)
+    job_list = ":".join(map(str, job_list))
+    calc_euclidean_distance(
+        directory=directory, slice = sections_with_nothing_before, slice_before='no',
+        use_slurm=True,
+        slurm_folder='/camp/home/turnerb/slurm_logs',
+        job_dependency=job_list,
+    )
+        
+@slurm_it(
+    conda_env="MAPseq_processing",
+    module_list=None,
+    slurm_options=dict(ntasks=1, time="72:00:00", mem="100G", partition="cpu"),
+)
+def calc_euclidean_distance(directory, slice, slice_before):
+    """function to find z distance between slices
+    Args:
+        directory (str): directory where sections are
+        slice (str): which section you're looking at e.g. 's001'
+        slice_before: are these slices with something before (if no, then supply list in slice)
+    Returns:
+        None
+    """
+    saving_path = pathlib.Path(directory)/'allenccf/allen_ccf_coord'
+    if slice_before == 'yes':
+        slice_nam=str(slice)
+        slicenum = int(slice_nam[21:24])
+        slice_before= slicenum+1
+        if slice_before >9:
+            slicebefore_name = f's0{slice_before}'
+        if slice_before<10:
+            slicebefore_name = f's00{slice_before}' 
+        [x1a, y1a, z1a, one1] = np.load(saving_path/file)
+        [x2a, y2a, z2a, one2] = np.load(saving_path/f'allen_ccf_converted_{slicebefore_name}.npy')
+        point_z = x1a.flatten()
+        points_xy = np.column_stack((z1a.flatten(), y1a.flatten()))
+        # Stack x1 and y1 to create a single array for [x1, y1]
+        points_xy1 = np.column_stack((z2a.flatten(), y2a.flatten()))
+        point_z2 = x2a.flatten()
+        # Find the closest point in x1, y1 for each point in x, y
+        z_dist_points = []
+        for i, point in enumerate(points_xy):
+            distances = np.linalg.norm(points_xy1 - point, axis=1)
+            closest_index = np.argmin(distances)
+            z_distance = point_z2[closest_index] - point_z[i]
+            z_dist_points.append(z_distance)
+        final_z = np.median(z_dist_points)
+        add_z = pd.read_pickle(f'{directory}/add_z.pkl')
+        add_z= add_z.append({'slice': slice_name, 'amountz': final_z},ignore_index=True)
+        add_z.to_pickle(f'{directory}/add_z.pkl')
+    if slice_before == 'no':
+        add_z = pd.read_pickle(f'{directory}/add_z.pkl')
+        average_z = add_z.loc[:, 'amountz'].mean()
+        for section in slice:
+            add_z= add_z.append({'slice': slice_name, 'amountz': average_z},ignore_index=True)
+        add_z.to_pickle(f'{directory}/add_z.pkl')
+    print(f'finished {slice}', flush=True)
+        
     
 def get_roi_vol(lcm_dir, add_z, allen_anno_path):
     """
