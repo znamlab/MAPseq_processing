@@ -173,14 +173,14 @@ def get_euclidean_distance(directory):
         slice_before= slicenum+1
         if file.startswith('allen_ccf_converted_'):
             slice_name = file[20:24]
-        if slice_before >9:
-            slicebefore_name = f's0{slice_before}'
-        if slice_before<10:
-            slicebefore_name = f's00{slice_before}' 
-        if pathlib.Path(saving_path/f'allen_ccf_converted_{slicebefore_name}.npy').exists():
-            sections_for_job.append(slice_name)
-        if not pathlib.Path(saving_path/f'allen_ccf_converted_{slicebefore_name}.npy').exists():
-            sections_with_nothing_before.append(slice_name)
+            if slice_before >9:
+                slicebefore_name = f's0{slice_before}'
+            if slice_before<10:
+                slicebefore_name = f's00{slice_before}' 
+            if pathlib.Path(saving_path/f'allen_ccf_converted_{slicebefore_name}.npy').exists():
+                sections_for_job.append(slice_name)
+            if not pathlib.Path(saving_path/f'allen_ccf_converted_{slicebefore_name}.npy').exists():
+                sections_with_nothing_before.append(slice_name)
     add_z.to_pickle(f'{directory}/add_z.pkl')
     job_list = []
     for file in sections_for_job:
@@ -210,14 +210,13 @@ def calc_euclidean_distance(directory, slice, slice_before):
     """
     saving_path = pathlib.Path(directory)/'allenccf/allen_ccf_coord'
     if slice_before == 'yes':
-        slice_nam=str(slice)
-        slicenum = int(slice_nam[21:24])
+        slicenum = int(slice[1:4])
         slice_before= slicenum+1
         if slice_before >9:
             slicebefore_name = f's0{slice_before}'
         if slice_before<10:
             slicebefore_name = f's00{slice_before}' 
-        [x1a, y1a, z1a, one1] = np.load(saving_path/file)
+        [x1a, y1a, z1a, one1] = np.load(saving_path/f'allen_ccf_converted_{slicebefore_name}.npy')
         [x2a, y2a, z2a, one2] = np.load(saving_path/f'allen_ccf_converted_{slicebefore_name}.npy')
         point_z = x1a.flatten()
         points_xy = np.column_stack((z1a.flatten(), y1a.flatten()))
@@ -231,10 +230,13 @@ def calc_euclidean_distance(directory, slice, slice_before):
             closest_index = np.argmin(distances)
             z_distance = point_z2[closest_index] - point_z[i]
             z_dist_points.append(z_distance)
-        final_z = np.median(z_dist_points)
-        add_z = pd.read_pickle(f'{directory}/add_z.pkl')
-        add_z= add_z.append({'slice': slice_name, 'amountz': final_z},ignore_index=True)
-        add_z.to_pickle(f'{directory}/add_z.pkl')
+        z_dist_points= np.array(z_dist_points)
+        z_dist_points =z_dist_points.reshape(x1a.shape)
+        np.save(f'{saving_path}/z_add_{slice}.npy', z_dist_points)
+        #final_z = np.median(z_dist_points)
+        #add_z = pd.read_pickle(f'{directory}/add_z.pkl')
+        #add_z= add_z.append({'slice': slice_name, 'amountz': final_z},ignore_index=True)
+        #add_z.to_pickle(f'{directory}/add_z.pkl')
     if slice_before == 'no':
         add_z = pd.read_pickle(f'{directory}/add_z.pkl')
         average_z = add_z.loc[:, 'amountz'].mean()
@@ -435,39 +437,39 @@ def group_ROI_coordinates(lcm_directory):
 
     for ROI_to_look in os.listdir(ROI_path):
     #region = ROI_path/'s015_TUBE6.png'
-    region = ROI_path/ROI_to_look
-    if ROI_to_look.startswith('s0') or ROI_to_look.startswith('S0'):
-        slicename = region.stem[1:4]
-        tube = region.stem[5:len(region.stem)].split('TUBE', 1)[1]
-        #if int(tube) in cortical_samples_table['Tube'].to_list():
-        [xa, ya, za, one] = np.load(reg_dir/f'allen_ccf_converted_s{slicename}.npy')
-        roi = plt.imread(ROI_path/f'{region}')
-        allencoord_roiya = roi*ya
-        allencoord_roiza = roi*za
-        allencoord_roixa= roi*xa
-        z_to_add = add_z.loc[add_z['slice'] == f's{slicename}', 'amountz'].iloc[0]
+        region = ROI_path/ROI_to_look
+        if ROI_to_look.startswith('s0') or ROI_to_look.startswith('S0'):
+            slicename = region.stem[1:4]
+            tube = region.stem[5:len(region.stem)].split('TUBE', 1)[1]
+            #if int(tube) in cortical_samples_table['Tube'].to_list():
+            [xa, ya, za, one] = np.load(reg_dir/f'allen_ccf_converted_s{slicename}.npy')
+            roi = plt.imread(ROI_path/f'{region}')
+            allencoord_roiya = roi*ya
+            allencoord_roiza = roi*za
+            allencoord_roixa= roi*xa
+            z_to_add = add_z.loc[add_z['slice'] == f's{slicename}', 'amountz'].iloc[0]
 
-        #convert the x, y, z coordinates to pixel
-        pixcoord = []
-        for i, axis in enumerate([allencoord_roixa, allencoord_roiya, allencoord_roiza]):
-            pixel = np.array(np.round(axis/10), dtype=int)
-            pixel[pixel <0] = 0
-            pixel[pixel >= empty_frame.shape[i]] = 0
-            pixcoord.append(pixel)
-        new_coord = np.zeros(pixcoord[0].shape)
-        z_add=0
-        for stack in range(int(np.round(z_to_add/10))):
-            for i in range(pixcoord[0].shape[0]):
-                for j in range(pixcoord[0].shape[1]):
-                    if pixcoord[0][i, j] != 0:
-                        new_coord[i,j] = (pixcoord[0][i, j])-z_add
-            z_add = z_add+1
-            for k in range(pixcoord[0].shape[0]):
-                for l in range(pixcoord[0].shape[1]):
-                    x = new_coord[k, l]
-                    y = pixcoord[1][k, l]
-                    z = pixcoord[2][k, l]
-                    if x != 0 and y != 0 and z != 0:
-                        empty_frame[int(x), int(y), int(z)] = int(tube)
+            #convert the x, y, z coordinates to pixel
+            pixcoord = []
+            for i, axis in enumerate([allencoord_roixa, allencoord_roiya, allencoord_roiza]):
+                pixel = np.array(np.round(axis/10), dtype=int)
+                pixel[pixel <0] = 0
+                pixel[pixel >= empty_frame.shape[i]] = 0
+                pixcoord.append(pixel)
+            new_coord = np.zeros(pixcoord[0].shape)
+            z_add=0
+            for stack in range(int(np.round(z_to_add/10))):
+                for i in range(pixcoord[0].shape[0]):
+                    for j in range(pixcoord[0].shape[1]):
+                        if pixcoord[0][i, j] != 0:
+                            new_coord[i,j] = (pixcoord[0][i, j])-z_add
+                z_add = z_add+1
+                for k in range(pixcoord[0].shape[0]):
+                    for l in range(pixcoord[0].shape[1]):
+                        x = new_coord[k, l]
+                        y = pixcoord[1][k, l]
+                        z = pixcoord[2][k, l]
+                        if x != 0 and y != 0 and z != 0:
+                            empty_frame[int(x), int(y), int(z)] = int(tube)
     np.save(f'{lcm_directory}/ROI_flatmap.npy', empty_frame)
 
