@@ -169,80 +169,73 @@ def get_euclidean_distance(directory):
     sections_with_nothing_before =[]
     sections_for_job = []
     for file in os.listdir(saving_path):
-        slicenum = int(file[21:24])
-        slice_before= slicenum+1
         if file.startswith('allen_ccf_converted_'):
+            slicenum = int(file[21:24])
+            slice_before= slicenum+1
             slice_name = file[20:24]
             if slice_before >9:
                 slicebefore_name = f's0{slice_before}'
             if slice_before<10:
                 slicebefore_name = f's00{slice_before}' 
             if pathlib.Path(saving_path/f'allen_ccf_converted_{slicebefore_name}.npy').exists():
-                sections_for_job.append(slice_name)
+                calc_euclidean_distance(directory = directory, slice = slice_name, use_slurm=True, scripts_name=f"z_{slice_name}", slurm_folder='/camp/home/turnerb/slurm_logs')
             if not pathlib.Path(saving_path/f'allen_ccf_converted_{slicebefore_name}.npy').exists():
                 sections_with_nothing_before.append(slice_name)
-    add_z.to_pickle(f'{directory}/add_z.pkl')
-    job_list = []
-    for file in sections_for_job:
-        job = calc_euclidean_distance(directory = directory, slice = slice_name, slice_before='yes', use_slurm=True, scripts_name=f"z_{slice_name}", slurm_folder='/camp/home/turnerb/slurm_logs')
-        job_list.append(job)
-    job_list = ":".join(map(str, job_list))
-    calc_euclidean_distance(
-        directory=directory, slice = sections_with_nothing_before, slice_before='no',
-        use_slurm=True,
-        slurm_folder='/camp/home/turnerb/slurm_logs',
-        job_dependency=job_list,
-    )
+    sections_with_nothing_before = np.array(sections_with_nothing_before)
+    np.save(f'{saving_path}/sections_with_nothing_before', sections_with_nothing_before)
         
 @slurm_it(
     conda_env="MAPseq_processing",
     module_list=None,
     slurm_options=dict(ntasks=1, time="72:00:00", mem="100G", partition="cpu"),
 )
-def calc_euclidean_distance(directory, slice, slice_before):
+def calc_euclidean_distance(directory, slice):
     """function to find z distance between slices
     Args:
         directory (str): directory where sections are
         slice (str): which section you're looking at e.g. 's001'
-        slice_before: are these slices with something before (if no, then supply list in slice)
     Returns:
         None
     """
     saving_path = pathlib.Path(directory)/'allenccf/allen_ccf_coord'
-    if slice_before == 'yes':
-        slicenum = int(slice[1:4])
-        slice_before= slicenum+1
-        if slice_before >9:
-            slicebefore_name = f's0{slice_before}'
-        if slice_before<10:
-            slicebefore_name = f's00{slice_before}' 
-        [x1a, y1a, z1a, one1] = np.load(saving_path/f'allen_ccf_converted_{slicebefore_name}.npy')
-        [x2a, y2a, z2a, one2] = np.load(saving_path/f'allen_ccf_converted_{slicebefore_name}.npy')
-        point_z = x1a.flatten()
-        points_xy = np.column_stack((z1a.flatten(), y1a.flatten()))
-        # Stack x1 and y1 to create a single array for [x1, y1]
-        points_xy1 = np.column_stack((z2a.flatten(), y2a.flatten()))
-        point_z2 = x2a.flatten()
-        # Find the closest point in x1, y1 for each point in x, y
-        z_dist_points = []
-        for i, point in enumerate(points_xy):
-            distances = np.linalg.norm(points_xy1 - point, axis=1)
-            closest_index = np.argmin(distances)
-            z_distance = point_z2[closest_index] - point_z[i]
-            z_dist_points.append(z_distance)
-        z_dist_points= np.array(z_dist_points)
-        z_dist_points =z_dist_points.reshape(x1a.shape)
-        np.save(f'{saving_path}/z_add_{slice}.npy', z_dist_points)
+    slicenum = int(slice[1:4])
+    slice_before= slicenum+1
+    if slice_before >9:
+        slicebefore_name = f's0{slice_before}'
+    if slice_before<10:
+        slicebefore_name = f's00{slice_before}' 
+    [x1a, y1a, z1a, one1] = np.load(saving_path/f'allen_ccf_converted_{slice}.npy')
+    [x2a, y2a, z2a, one2] = np.load(saving_path/f'allen_ccf_converted_{slicebefore_name}.npy')
+    point_z = x1a.flatten()
+    points_xy = np.column_stack((z1a.flatten(), y1a.flatten()))
+    # Stack x1 and y1 to create a single array for [x1, y1]
+    points_xy1 = np.column_stack((z2a.flatten(), y2a.flatten()))
+    point_z2 = x2a.flatten()
+    # Find the closest point in x1, y1 for each point in x, y
+    z_dist_points = []
+    closest_dist_points = []
+    for i, point in enumerate(points_xy):
+        distances = np.linalg.norm(points_xy1 - point, axis=1)
+        closest_index = np.argmin(distances)
+        z_distance = point_z2[closest_index] - point_z[i]
+        z_dist_points.append(z_distance)
+        closest_dist_points.append(distances[closest_index])
+    closest_dist_points= np.array(closest_dist_points)    
+    z_dist_points= np.array(z_dist_points)
+    z_dist_points =z_dist_points.reshape(x1a.shape)
+    closest_dist_points =closest_dist_points.reshape(x1a.shape)
+    np.save(f'{saving_path}/z_add_{slice}.npy', z_dist_points)
+    np.save(f'{saving_path}/euclid_distance_{slice}.npy', closest_dist_points)
         #final_z = np.median(z_dist_points)
         #add_z = pd.read_pickle(f'{directory}/add_z.pkl')
         #add_z= add_z.append({'slice': slice_name, 'amountz': final_z},ignore_index=True)
         #add_z.to_pickle(f'{directory}/add_z.pkl')
-    if slice_before == 'no':
-        add_z = pd.read_pickle(f'{directory}/add_z.pkl')
-        average_z = add_z.loc[:, 'amountz'].mean()
-        for section in slice:
-            add_z= add_z.append({'slice': slice_name, 'amountz': average_z},ignore_index=True)
-        add_z.to_pickle(f'{directory}/add_z.pkl')
+    # if slice_before == 'no':
+    #     add_z = pd.read_pickle(f'{directory}/add_z.pkl')
+    #     average_z = add_z.loc[:, 'amountz'].mean()
+    #     for section in slice:
+    #         add_z= add_z.append({'slice': slice_name, 'amountz': average_z},ignore_index=True)
+    #     add_z.to_pickle(f'{directory}/add_z.pkl')
     print(f'finished {slice}', flush=True)
         
     
