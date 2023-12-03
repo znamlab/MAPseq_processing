@@ -53,11 +53,12 @@ def load_parameters(directory="root"):
     module_list=None,
     slurm_options=dict(ntasks=1, time="24:00:00", mem="350G", partition="hmem"),
 )
-def convert_images(lcm_aligned_dir):
+def convert_images(lcm_aligned_dir, overwrite):
     """
     Function to convert LCM images into npy files with non-linear deformation
     Args:
         lcm_aligned_dir(str): path to where json file where Visualign output is
+        overwrite (str): 'yes' or 'no' - whether you want to overwrite current converted images in directory
     Returns: 
         None
      """
@@ -78,7 +79,7 @@ def convert_images(lcm_aligned_dir):
     for i, row in slice_coord['filename'].iteritems():
         section =row[:-len('.jpeg')]
         filename = f'{str(saving_path)}/allen_ccf_converted{section}'
-        if os.path.exists(f'{filename}.npy'):
+        if os.path.exists(f'{filename}.npy') and overwrite == 'no':
             print(f'{filename} exists already, moving to next', flush=True)
         else:
             print(f'Performing non-linear deformation for {section} at {datetime.datetime.now()}', flush=True)
