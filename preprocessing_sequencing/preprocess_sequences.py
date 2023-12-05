@@ -327,7 +327,7 @@ def run_bc_splitter(
     module_list=None,
     slurm_options=dict(ntasks=1, time="72:00:00", mem="64G", partition="cpu"),
 )
-def preprocess_reads(directory, barcode_range, max_file_size=100):
+def preprocess_reads(directory, barcode_range, max_file_size=100, extremely_large_job_size=6000):
     """Function to run UMI-tools to correct PCR and sequencing errors for UMI's and
     neuron barcodes separately, then take UMI counts for each barcode.
 
@@ -336,7 +336,8 @@ def preprocess_reads(directory, barcode_range, max_file_size=100):
         barcode_range (tuple): Id of the first and last barcodes to process (1, 91) e.g.
         max_file_size (float): maximum file size in MB at which the BC file is it to be
             processed using lower memory job. If higher than this, a separate job using
-            the hmem node will be initiated (default 100)
+            a higher memory will be initiated (default 100)
+        extremely_large_job_size (float): for files that are on the extremely large end, we will request max memory jobs (default 6GB)
 
     Returns:
         None.
@@ -372,9 +373,12 @@ def preprocess_reads(directory, barcode_range, max_file_size=100):
             kwargs.update(
                 use_slurm=True,
                 slurm_folder=slurm_folder,
-                scripts_name=f"neuron_correction_{barcode_num}",
+                scripts_name=f"neuron_correction_BC{x}",
             )
-        job = process_neuron_barcodes(**kwargs)
+        if fsize <= extremely_large_job_size:
+            job = process_neuron_barcodes(**kwargs)
+        if fsize > extremely_large_job_size:
+            job = process_big_neuron_barcodes(**kwargs)
         if fsize > max_file_size:
             job_list.append(job)
     print(f"Started {len(job_list)} jobs for big files", flush=True)
@@ -422,15 +426,58 @@ def process_neuron_barcodes(barcode_file, directory, redo=False):
     # processed for big ones)
     int_file = temp_output.joinpath(f"neuron_only_corrected_{barcode}.pkl")
     if pathlib.Path(int_file).is_file() and not redo:
-        print("Loading intermediate pkl file", flush=True)
-        neuron_bc_corrected = pd.read_pickle(int_file)
+        print("Already have intermediate pkl file", flush=True)
+        #neuron_bc_corrected = pd.read_pickle(int_file)
     else:
         print(f"Looking at {barcode}")
         neuron_bc_corrected = error_correct_sequence(
             reads=barcode_tab, sequence_type="neuron"
         )
-    neuron_bc_corrected.to_pickle(int_file)
-    print("Saved intermediate pkl file", flush=True)
+        neuron_bc_corrected.to_pickle(int_file)
+        print("Saved intermediate pkl file", flush=True)
+
+@slurm_it(
+    conda_env="MAPseq_processing",
+    module_list=None,
+    slurm_options=dict(ntasks=1, time="72:00:00", mem="250G", partition="cpu"),
+)
+def process_big_neuron_barcodes(barcode_file, directory, redo=False):
+    """Function to process the barcode sequences, removing homopolymers before
+    calling error correction. Same as process_neuron_barcodes, but calls higher mem job.
+
+    Args:
+        barcode (str): what RT barcode file for samples is being analysed
+        directory: directory where sample barcode files are kept
+        redo (bool): whether to redo the analysis if it has already been done. Default
+            False
+    """
+    directory = pathlib.Path(directory)
+    barcode_file = pathlib.Path(barcode_file)
+    temp_output = directory.parent / "temp_big_ones"
+    temp_output.mkdir(parents=True, exist_ok=True)
+    barcode = barcode_file.stem
+
+    raw_bc = pd.read_csv(
+        barcode_file, delimiter="\t", skiprows=lambda x: (x != 0) and not x % 2
+    )
+    barcode_tab = pd.DataFrame()
+    barcode_tab["full_read"] = raw_bc[(~raw_bc.iloc[:, 0].str.contains("N"))].copy()
+    del raw_bc  # not needed anymore
+    barcode_tab["neuron_sequence"] = barcode_tab["full_read"].str[:32]
+    barcode_tab["umi_sequence"] = barcode_tab["full_read"].str[32:46]
+    # error correct neuron barcodes first (not as diverse as umi's, so whole table
+    # processed for big ones)
+    int_file = temp_output.joinpath(f"neuron_only_corrected_{barcode}.pkl")
+    if pathlib.Path(int_file).is_file() and not redo:
+        print("Already have intermediate pkl file", flush=True)
+        #neuron_bc_corrected = pd.read_pickle(int_file)
+    else:
+        print(f"Looking at {barcode}")
+        neuron_bc_corrected = error_correct_sequence(
+            reads=barcode_tab, sequence_type="neuron"
+        )
+        neuron_bc_corrected.to_pickle(int_file)
+        print("Saved intermediate pkl file", flush=True)
 
 
 @slurm_it(
@@ -456,7 +503,7 @@ def correct_all_umis(directory, barcode_per_batch=50000):
     """
     directory = pathlib.Path(directory)
 
-    parameters = load_parameters(directory=directory.parent)
+    parameters = load_parameters(directory.parent)
     day = datetime.now().strftime("%Y-%m-%d")
     slurm_folder = pathlib.Path(parameters["SLURM_DIR"] + f"/{day}")
     slurm_folder.mkdir(parents=True, exist_ok=True)
@@ -563,15 +610,15 @@ def collate_error_correction_results(directory, temp_output):
         None
     """
     directory = pathlib.Path(directory)
-    parameters = load_parameters(directory=directory.parent)
+    parameters = load_parameters(directory=directory)
     temp_output = pathlib.Path(temp_output)
-    barcode_file = pathlib.Path(barcode_file)
-    barcode = barcode_file.stem
+    # barcode_file = pathlib.Path(barcode_file)
+    # barcode = barcode_file.stem
 
     corrected_path = directory.parent / "preprocessed_seq_corrected"
     corrected_path.mkdir(parents=True, exist_ok=True)
 
-    for neuron_file in corrected_path.glob("neuron_only_corrected_*.pkl"):
+    for neuron_file in temp_output.glob("neuron_only_corrected_*.pkl"):
         barcode = neuron_file.stem.split("neuron_only_corrected_", 1)[1]
         output_file = corrected_path.joinpath(f"corrected_{barcode}.csv")
         if output_file.is_file():
