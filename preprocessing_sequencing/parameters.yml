@@ -1,59 +1,36 @@
-# general info for paths and flexilims
-general_expt_parameters:
-  NOTES: Source sites re-sequenced as UMI count low, therefore processing performed on both TUR5514A4 (all but source diluted 1/4) and TUR5514A4 (source only). Template corrected TUR5514A4 then replaced the same source barcode files that were undersequenced for the full run in a common folder for barcode matching step.
-  #what is the name of the project folder that the raw and processed data is saved under?
-  PROJECT: turnerb_A1_MAPseq
-  #mouse name on mcms
-  MOUSE: FIAA32.6a
-  # the path to where txt file is that has sequences of sample barcodes
-  BARCODE_DIR: /nemo/lab/znamenskiyp/data/instruments/raw_data/projects/turnerb_A1_MAPseq/FIAA32.6a/Sequencing/sample_barcodes.txt
-  #path to raw directory where fastq files are
-  RAW_DIR: /nemo/lab/znamenskiyp/data/instruments/raw_data/projects/turnerb_A1_MAPseq/FIAA32.6a/Sequencing
-  # path to prcoessed data
-  PROCESSED_DIR: /nemo/lab/znamenskiyp/home/shared/projects
-  #folder where to record slurm logs and dependencies
-  SLURM_DIR: /camp/home/turnerb/slurm_logs
-  #path to MAPseq processing scripts
-  SCRIPT_PATH: /camp/home/turnerb/home/users/turnerb/code/MAPseq_processing
-
-# parameters for the sample splitting part
-split_samples_parameters:
-    #the id name for the sequencing dataset
-    acq_id: TUR5514A4
-    #overwrite existing FASTQ files if existing?
-    overwrite: True
-    #number of mismatches to tolerate when matching RT primer sequences to reads
-    n_mismatch: 2
-    # the read 1 component you're interested in and want to keep (e.g. from nucleotides 0 to 32 is usual for neuron barcode)
-    r1_part: [0, 32]
-    # the read 2 component you're interested in and want to keep (e.g. from nucleotides 0 to 30 is usual for umi + sample barcode)
-    r2_part: [0, 30]
-    #start and end of expected consensus sequence for QC'ing reads as junk or not
-    consensus_pos: [37, 42]
-    # consensus sequence
-    consensus_seq: GCGGC
-
-#parameters for sequence correction
-sequence_processing_parameters:
-  # maximum number of reads in sample for it to be processed using lower memory job. If higher than this, a separate job using the hmem node will be initiated (default 10000000)
-  max_file_size: 100
-  # length of neuron barcode (this is 32nt for original MAPseq sindbis virus library)
-  neuron_bc_length: 32
-  # from start of read 1 neuron barcode sequence, the sequence that differentiates a neuron barcode as belonging to spike-in RNA
-  spike_in_identifier: ^.{24}ATCAGTCA
-  # from start of read 1 neuron barcode sequence, the sequence that differentiates a neuron barcode as belonging to actual neurons
-  neuron_identifier: ^.{30}[CT][CT]
-
-# Parameters for collapsing UMI's
 UMI_collapse_parameters:
-  # determine UMI cut-off manually by looking at histogram distribution of UMI counts. Code for this can be found in the notebook 'determine_UMI_cutoff'
-  UMI_cutoff: 8
-  # min amount that if shared umi between neuron barcodes the most abundant neuron barcode umi must be more abundant by (default 10) - samples with shared umi with abundance threshold
-  # below this are deleted
-  template_switch_abundance: 10
-  # number of unique umi's to process at once per job (30000 seems to be the sweet spot for analysis to finish in a few hours)
+  UMI_cutoff: 3
+  barcode_range:
+  - 1
+  - 137
   num_umi: 30000
-  # start and end of barcode file to loop through
-  barcode_range: [1, 91]
-  # if you have resequenced some of the dataset (e.g. to get more reads, you can choose whether to pause after the collapsing and template switcing part to reorganise/combine files before performing barcode matching)
-  pause_before_matching: yes
+  pause_before_matching: true
+  template_switch_abundance: 8
+general_expt_parameters:
+  BARCODE_DIR: /nemo/lab/znamenskiyp/home/shared/projects/turnerb_V1_MAPseq/BRAC8198.6c/sample_barcodes.txt
+  MOUSE: BRAC8198.6c
+  NOTES: 1st V1 HVA MAPseq brain, two sequencing runs of 500M reads
+  PROCESSED_DIR: /nemo/lab/znamenskiyp/home/shared/projects
+  PROJECT: turnerb_V1_MAPseq
+  RAW_DIR: /nemo/lab/znamenskiyp/home/shared/projects/turnerb_V1_MAPseq/BRAC8198.6c/Sequencing
+  SCRIPT_PATH: /camp/home/turnerb/home/users/turnerb/code/MAPseq_processing
+  SLURM_DIR: /camp/home/turnerb/slurm_logs
+sequence_processing_parameters:
+  max_reads_per_correction: 10000000
+  neuron_bc_length: 32
+  neuron_identifier: ^.{30}[CT][CT]
+  spike_in_identifier: ^.{24}ATCAGTCA
+split_samples_parameters:
+  acq_id: [TUR4752A2_S75, TUR4752A2_S171]
+  consensus_pos:
+  - 37
+  - 42
+  consensus_seq: GCGGC
+  n_mismatch: 2
+  overwrite: true
+  r1_part:
+  - 0
+  - 32
+  r2_part:
+  - 0
+  - 30
