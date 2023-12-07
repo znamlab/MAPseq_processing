@@ -377,7 +377,7 @@ def preprocess_reads(directory, barcode_range, max_file_size=100, extremely_larg
                         file_1 = file_1 + file_next
         out_path =  BC_split_combined/file
         with open(out_path, "w") as output_file:
-        output_file.write(file_1)
+            output_file.write(file_1)
         del file_1
         del file_next
     barcode_range = tuple(parameters["barcode_range"])
