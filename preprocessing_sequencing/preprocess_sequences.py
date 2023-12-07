@@ -104,28 +104,96 @@ def split_samples(verbose=1, start_next_step=True):
     parameters = load_parameters(directory="root")
     parameters_file = pathlib.Path(__file__).parent / "parameters.yml"
     processed_dir = pathlib.Path(parameters["PROCESSED_DIR"])
-    output_dir = (
-        processed_dir
-        / parameters["PROJECT"]
-        / parameters["MOUSE"]
-        / "Sequencing"
-        / parameters["acq_id"]
-        / "BC_split"
-    )
-    output_dir.mkdir(parents=True, exist_ok=True)
+    job_list = []
     # make a copy of the parameters file in the processed folder
-    parameters_copy = output_dir.parent / f"parameters.yml"
+    new_dir = (
+            processed_dir
+            / parameters["PROJECT"]
+            / parameters["MOUSE"]
+            / "Sequencing")
+    new_dir.mkdir(parents=True, exist_ok=True)
+    parameters_copy = new_dir / f"parameters.yml"
     shutil.copy(str(parameters_file), str(parameters_copy))
-    print(f"raw file is ")  # ? What is this
+    #if more than one sequencing round, you will have more than one aqu_id in parameters, therefore you loop through and combine later
+    for i in parameters['acq_id']:
+        output_dir = (
+            processed_dir
+            / parameters["PROJECT"]
+            / parameters["MOUSE"]
+            / "Sequencing"
+            / i
+            / "BC_split"
+        )
+        output_dir.mkdir(parents=True, exist_ok=True)
+        job = unzip_fastq(
+        source_dir=parameters["RAW_DIR"],
+        acq_id=i,
+        overwrite=parameters["overwrite"],
+        target_dir=str(output_dir), use_slurm=True,
+        slurm_folder=parameters["SLURM_DIR"], scripts_name=f"unzip_and_split_{i}"
+    )
+        job_list.append(job)
+
+    job_list = ":".join(map(str, job_list))
+    if start_next_step:
+        if verbose:
+            print("Sending preprocess reads job", flush=True)
+        preprocess_reads(
+            directory=str(output_dir),
+            barcode_range=parameters["barcode_range"],
+            use_slurm=True,
+            slurm_folder=parameters["SLURM_DIR"], job_dependency=job_list
+        )
+
+
+@slurm_it(
+    conda_env="MAPseq_processing",
+    module_list=["FASTX-Toolkit"],
+    slurm_options=dict(ntasks=1, time="72:00:00", mem="50G", partition="cpu"),
+)
+def unzip_fastq(source_dir, acq_id, target_dir=None, overwrite=True, verbose=1):
+    """Unzip fastq.gz files and sends for splitting into RT primer samples
+
+    Args:
+        source_dir (str or pathlib.Path): Path to the folder containing the
+            fastq.gz files.
+        acq_id (str): Acquisition ID. Only file starting with this id will be unzipped
+        target_dir (str or pathlib.Path): Path to directory to write the output. If
+            None (default), will write in source_dir
+        overwrite (bool): Overwrite target if it already exists. Default to False
+        verbose (int): 0 do not print anything. 1 print progress
+
+    Returns:
+        None
+    """
     if verbose:
         tstart = datetime.now()
-    fastq_files = unzip_fastq(
-        source_dir=parameters["RAW_DIR"],
-        acq_id=parameters["acq_id"],
-        overwrite=parameters["overwrite"],
-        target_dir=output_dir,
-    )
-    # make sure we have read1 and read2
+    source_dir = pathlib.Path(source_dir)
+    assert source_dir.is_dir()
+
+    if target_dir is None:
+        target_dir = source_dir
+    else:
+        target_dir = pathlib.Path(target_dir)
+        if not target_dir.is_dir():
+            target_dir.mkdir(mode=774)
+    parameters_loc = pathlib.Path(target_dir).parents[1]
+    parameters = load_parameters(directory=str(parameters_loc))
+    fastq_files = dict()
+    for gz_file in source_dir.glob("{0}*.fastq.gz".format(acq_id)):
+        target_file = target_dir / gz_file.stem
+        if target_file.exists() and (not overwrite):
+            raise IOError(f"{target_file} already exists. Use overwrite to replace")
+        if verbose:
+            t = datetime.now()
+            print("Unzipping %s (%s)" % (gz_file, t.strftime("%H:%M:%S")))
+        with gzip.open(gz_file, "rb") as source, open(target_file, "wb") as target:
+            shutil.copyfileobj(source, target)
+        fastq_files[target_file.stem] = target_file
+    
+        # make sure we have read1 and read2
+    #if you've re-sequenced for more reads (and so have multiple fastq files), run barcode splitter separately, then 
+    #combine
     read_files = dict()
     for read_number in [1, 2]:
         good_file = [r for r in fastq_files.keys() if "R%d" % read_number in r]
@@ -147,7 +215,7 @@ def split_samples(verbose=1, start_next_step=True):
         n_mismatch=parameters["n_mismatch"],
         r1_part=r1_part,
         r2_part=r2_part,
-        output_dir=output_dir,
+        output_dir=target_dir,
         verbose=1,
         consensus_pos=consensus_pos,
         consensus_seq=parameters["consensus_seq"],
@@ -159,56 +227,6 @@ def split_samples(verbose=1, start_next_step=True):
     if verbose:
         tend = datetime.now()
         print("That took %s" % (tend - tstart), flush=True)
-    
-    if start_next_step:
-        if verbose:
-            print("Starting next step", flush=True)
-        preprocess_reads(
-            directory=str(output_dir),
-            barcode_range=parameters["barcode_range"],
-            max_file_size=parameters["max_file_size"] / 100000,
-            use_slurm=True,
-            slurm_folder=parameters["SLURM_DIR"],
-        )
-
-
-def unzip_fastq(source_dir, acq_id, target_dir=None, overwrite=True, verbose=1):
-    """Unzip fastq.gz files
-
-    Args:
-        source_dir (str or pathlib.Path): Path to the folder containing the
-            fastq.gz files.
-        acq_id (str): Acquisition ID. Only file starting with this id will be unzipped
-        target_dir (str or pathlib.Path): Path to directory to write the output. If
-            None (default), will write in source_dir
-        overwrite (bool): Overwrite target if it already exists. Default to False
-        verbose (int): 0 do not print anything. 1 print progress
-
-    Returns:
-        out_files (dict): Dictionary of output files with file name as keys and full
-            path as values
-    """
-    source_dir = pathlib.Path(source_dir)
-    assert source_dir.is_dir()
-
-    if target_dir is None:
-        target_dir = source_dir
-    else:
-        target_dir = pathlib.Path(target_dir)
-        if not target_dir.is_dir():
-            target_dir.mkdir(mode=774)
-    out_files = dict()
-    for gz_file in source_dir.glob("{0}*.fastq.gz".format(acq_id)):
-        target_file = target_dir / gz_file.stem
-        if target_file.exists() and (not overwrite):
-            raise IOError("%s already exists. Use overwrite to replace" % target_file)
-        if verbose:
-            t = datetime.now()
-            print("Unzipping %s (%s)" % (gz_file, t.strftime("%H:%M:%S")))
-        with gzip.open(gz_file, "rb") as source, open(target_file, "wb") as target:
-            shutil.copyfileobj(source, target)
-        out_files[target_file.stem] = target_file
-    return out_files
 
 
 def run_bc_splitter(
@@ -348,7 +366,20 @@ def preprocess_reads(directory, barcode_range, max_file_size=100, extremely_larg
     job_list = []
 
     directory = pathlib.Path(directory)
-    parameters = load_parameters(directory=directory.parent)
+    parameters = load_parameters(directory=directory)
+    BC_split_combined = pathlib.Path(directory_path/'BC_split_combined').mkdir(parents=True, exist_ok=True)
+    all_files = os.listdir(directory_path/parameters['acq_id'][0]/'BC_split')
+    for file in all_files:
+        file_1 = open(directory_path/parameters['acq_id'][0]/'BC_split'/file, "r") #combine BC split output for different read folders
+        for n, i in enumerate(parameters['acq_id']):
+                if n > 0:
+                        file_next = open(directory_path/i/'BC_split'/file, "r")
+                        file_1 = file_1 + file_next
+        out_path =  BC_split_combined/file
+        with open(out_path, "w") as output_file:
+        output_file.write(file_1)
+        del file_1
+        del file_next
     barcode_range = tuple(parameters["barcode_range"])
     day = datetime.now().strftime("%Y-%m-%d")
     slurm_folder = pathlib.Path(parameters["SLURM_DIR"] + f"/{day}")
@@ -357,7 +388,7 @@ def preprocess_reads(directory, barcode_range, max_file_size=100, extremely_larg
     # Correct neuron barcodes first
     for x in range(barcode_range[0], barcode_range[1] + 1, 1):
         barcode_num = "BC" + str(x) + ".txt"
-        barcode_file = directory.joinpath(barcode_num)
+        barcode_file = BC_split_combined.joinpath(barcode_num)
         if not pathlib.Path(barcode_file).is_file():
             print(f"Bc file {barcode_file} not found")
             continue
@@ -367,19 +398,22 @@ def preprocess_reads(directory, barcode_range, max_file_size=100, extremely_larg
             print(f"Nothing in {barcode_file}")
             continue
         
-        kwargs = dict(barcode_file=str(barcode_file), directory=str(directory))
+        kwargs = dict(barcode_file=str(barcode_file), directory=str(BC_split_combined))
         # for big files, start a separate job
-        if fsize > max_file_size:
+        if fsize > max_file_size and fsize <= extremely_large_job_size:
             kwargs.update(
                 use_slurm=True,
                 slurm_folder=slurm_folder,
                 scripts_name=f"neuron_correction_BC{x}",
             )
         if fsize <= extremely_large_job_size:
-            job = process_neuron_barcodes(**kwargs)
-        if fsize > extremely_large_job_size:
-            job = process_big_neuron_barcodes(**kwargs)
+            kwargs.update(
+                use_slurm=True,
+                slurm_folder=slurm_folder,
+                scripts_name=f"neuron_correction_BC{x}", mem="250G"
+            )
         if fsize > max_file_size:
+            job = process_neuron_barcodes(**kwargs)
             job_list.append(job)
     print(f"Started {len(job_list)} jobs for big files", flush=True)
 
@@ -435,50 +469,6 @@ def process_neuron_barcodes(barcode_file, directory, redo=False):
         )
         neuron_bc_corrected.to_pickle(int_file)
         print("Saved intermediate pkl file", flush=True)
-
-@slurm_it(
-    conda_env="MAPseq_processing",
-    module_list=None,
-    slurm_options=dict(ntasks=1, time="72:00:00", mem="250G", partition="cpu"),
-)
-def process_big_neuron_barcodes(barcode_file, directory, redo=False):
-    """Function to process the barcode sequences, removing homopolymers before
-    calling error correction. Same as process_neuron_barcodes, but calls higher mem job.
-
-    Args:
-        barcode (str): what RT barcode file for samples is being analysed
-        directory: directory where sample barcode files are kept
-        redo (bool): whether to redo the analysis if it has already been done. Default
-            False
-    """
-    directory = pathlib.Path(directory)
-    barcode_file = pathlib.Path(barcode_file)
-    temp_output = directory.parent / "temp_big_ones"
-    temp_output.mkdir(parents=True, exist_ok=True)
-    barcode = barcode_file.stem
-
-    raw_bc = pd.read_csv(
-        barcode_file, delimiter="\t", skiprows=lambda x: (x != 0) and not x % 2
-    )
-    barcode_tab = pd.DataFrame()
-    barcode_tab["full_read"] = raw_bc[(~raw_bc.iloc[:, 0].str.contains("N"))].copy()
-    del raw_bc  # not needed anymore
-    barcode_tab["neuron_sequence"] = barcode_tab["full_read"].str[:32]
-    barcode_tab["umi_sequence"] = barcode_tab["full_read"].str[32:46]
-    # error correct neuron barcodes first (not as diverse as umi's, so whole table
-    # processed for big ones)
-    int_file = temp_output.joinpath(f"neuron_only_corrected_{barcode}.pkl")
-    if pathlib.Path(int_file).is_file() and not redo:
-        print("Already have intermediate pkl file", flush=True)
-        #neuron_bc_corrected = pd.read_pickle(int_file)
-    else:
-        print(f"Looking at {barcode}")
-        neuron_bc_corrected = error_correct_sequence(
-            reads=barcode_tab, sequence_type="neuron"
-        )
-        neuron_bc_corrected.to_pickle(int_file)
-        print("Saved intermediate pkl file", flush=True)
-
 
 @slurm_it(
     conda_env="MAPseq_processing",
