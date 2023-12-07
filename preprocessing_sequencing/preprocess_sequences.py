@@ -412,8 +412,8 @@ def preprocess_reads(directory, barcode_range, max_file_size=100, extremely_larg
                 slurm_folder=slurm_folder,
                 scripts_name=f"neuron_correction_BC{x}", mem="250G"
             )
+        job = process_neuron_barcodes(**kwargs)
         if fsize > max_file_size:
-            job = process_neuron_barcodes(**kwargs)
             job_list.append(job)
     print(f"Started {len(job_list)} jobs for big files", flush=True)
 
