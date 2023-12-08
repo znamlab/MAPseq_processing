@@ -14,7 +14,7 @@ import yaml
 
 
 def load_parameters(directory="root"):
-    """Load the parameters yaml file containting all the parameters required for
+    """Load the parameters yaml file containing all the parameters required for
     preprocessing MAPseq data
 
     Args:
@@ -139,7 +139,7 @@ def split_samples(verbose=1, start_next_step=True):
         if verbose:
             print("Sending preprocess reads job", flush=True)
         preprocess_reads(
-            directory=str(output_dir),
+            directory=str(new_dir),
             barcode_range=parameters["barcode_range"],
             use_slurm=True,
             slurm_folder=parameters["SLURM_DIR"], job_dependency=job_list
@@ -365,16 +365,18 @@ def preprocess_reads(directory, barcode_range, max_file_size=100, extremely_larg
     # take each neuron barcode and correct umi's within each
     job_list = []
 
-    directory = pathlib.Path(directory)
+    directory_path = pathlib.Path(directory)
     parameters = load_parameters(directory=directory)
     BC_split_combined = pathlib.Path(directory_path/'BC_split_combined').mkdir(parents=True, exist_ok=True)
     all_files = os.listdir(directory_path/parameters['acq_id'][0]/'BC_split')
     for file in all_files:
-        file_1 = open(directory_path/parameters['acq_id'][0]/'BC_split'/file, "r") #combine BC split output for different read folders
+        with open(directory_path/parameters['acq_id'][0]/'BC_split'/file, "r") as file_1:
+            file_1_contents = file_1.read() #combine BC split output for different read folders
         for n, i in enumerate(parameters['acq_id']):
                 if n > 0:
-                        file_next = open(directory_path/i/'BC_split'/file, "r")
-                        file_1 = file_1 + file_next
+                    with open(directory_path/i/'BC_split'/file, "r") as file_next:
+                        file_next_contents = file_next.read()
+                    file_1_contents = file_1_contents + file_next_contents
         out_path =  BC_split_combined/file
         with open(out_path, "w") as output_file:
             output_file.write(file_1)
