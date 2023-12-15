@@ -343,7 +343,7 @@ def run_bc_splitter(
 @slurm_it(
     conda_env="MAPseq_processing",
     module_list=None,
-    slurm_options=dict(ntasks=1, time="72:00:00", mem="64G", partition="cpu"),
+    slurm_options=dict(ntasks=1, time="48:00:00", mem="350G", partition="hmem"),
 )
 def preprocess_reads(directory, barcode_range, max_file_size=100, extremely_large_job_size=6000):
     """Function to run UMI-tools to correct PCR and sequencing errors for UMI's and
@@ -367,8 +367,10 @@ def preprocess_reads(directory, barcode_range, max_file_size=100, extremely_larg
 
     directory_path = pathlib.Path(directory)
     parameters = load_parameters(directory=directory)
-    BC_split_combined = pathlib.Path(directory_path/'BC_split_combined').mkdir(parents=True, exist_ok=True)
+    BC_split_combined = pathlib.Path(directory_path/'BC_split_combined')
+    BC_split_combined.mkdir(parents=True, exist_ok=True)
     all_files = os.listdir(directory_path/parameters['acq_id'][0]/'BC_split')
+    print('combining barcode splitter output', flush=True)
     for file in all_files:
         with open(directory_path/parameters['acq_id'][0]/'BC_split'/file, "r") as file_1:
             file_1_contents = file_1.read() #combine BC split output for different read folders
@@ -379,20 +381,20 @@ def preprocess_reads(directory, barcode_range, max_file_size=100, extremely_larg
                     file_1_contents = file_1_contents + file_next_contents
         out_path =  BC_split_combined/file
         with open(out_path, "w") as output_file:
-            output_file.write(file_1)
-        del file_1
-        del file_next
+            output_file.write(file_1_contents)
+        del file_1, file_next, file_1_contents, file_next_contents, output_file
     barcode_range = tuple(parameters["barcode_range"])
     day = datetime.now().strftime("%Y-%m-%d")
     slurm_folder = pathlib.Path(parameters["SLURM_DIR"] + f"/{day}")
     slurm_folder.mkdir(parents=True, exist_ok=True)
-
+    print('finished combining barcode splitter output, now sending jobs for neuron sequence correcton', flush=True)
     # Correct neuron barcodes first
     for x in range(barcode_range[0], barcode_range[1] + 1, 1):
         barcode_num = "BC" + str(x) + ".txt"
         barcode_file = BC_split_combined.joinpath(barcode_num)
+        print(f'looking at {barcode_num}', flush=True)
         if not pathlib.Path(barcode_file).is_file():
-            print(f"Bc file {barcode_file} not found")
+            print(f"BC file {barcode_file} not found")
             continue
 
         fsize = barcode_file.stat().st_size / 1024.0 / 1024.0  # size in MB
@@ -408,11 +410,11 @@ def preprocess_reads(directory, barcode_range, max_file_size=100, extremely_larg
                 slurm_folder=slurm_folder,
                 scripts_name=f"neuron_correction_BC{x}",
             )
-        if fsize <= extremely_large_job_size:
+        if fsize > extremely_large_job_size:
             kwargs.update(
                 use_slurm=True,
                 slurm_folder=slurm_folder,
-                scripts_name=f"neuron_correction_BC{x}", mem="250G"
+                scripts_name=f"neuron_correction_BC{x}", slurm_options=dict(mem="250G")
             )
         job = process_neuron_barcodes(**kwargs)
         if fsize > max_file_size:
@@ -422,7 +424,7 @@ def preprocess_reads(directory, barcode_range, max_file_size=100, extremely_larg
     # then correct umi's
     job_list = ":".join(map(str, job_list))
     correct_all_umis(
-        directory=str(directory),
+        directory=str(directory_path),
         use_slurm=True,
         slurm_folder=parameters["SLURM_DIR"],
         job_dependency=job_list,
@@ -475,7 +477,7 @@ def process_neuron_barcodes(barcode_file, directory, redo=False):
 @slurm_it(
     conda_env="MAPseq_processing",
     module_list=None,
-    slurm_options=dict(ntasks=1, time="72:00:00", mem="64G", partition="cpu"),
+    slurm_options=dict(ntasks=1, time="48:00:00", mem="350G", partition="hmem"),
 )
 def correct_all_umis(directory, barcode_per_batch=50000):
     """Function to correct umi sequences using UMI tools directional adjacency approach
@@ -493,13 +495,13 @@ def correct_all_umis(directory, barcode_per_batch=50000):
     Returns:
         None
     """
-    directory = pathlib.Path(directory)
+    directory_path = pathlib.Path(directory)
 
-    parameters = load_parameters(directory.parent)
+    parameters = load_parameters(directory)
     day = datetime.now().strftime("%Y-%m-%d")
     slurm_folder = pathlib.Path(parameters["SLURM_DIR"] + f"/{day}")
     slurm_folder.mkdir(parents=True, exist_ok=True)
-    temp_output = directory.parent / "temp_big_ones"
+    temp_output = directory_path / "temp_big_ones"
     assert temp_output.is_dir(), "Corrected path not found"
     job_ids = []
 
@@ -539,7 +541,7 @@ def correct_all_umis(directory, barcode_per_batch=50000):
     # finished
     job_ids = ",".join(map(str, job_ids))
     collate_error_correction_results(
-        directory=str(directory.parent),
+        directory=directory,
         temp_output=str(temp_output),
         use_slurm=True,
         scripts_name=f"UMI_correction_collate",
@@ -585,7 +587,7 @@ def correct_umi_sequences(barcode_file, neurons_to_process, output_file):
 @slurm_it(
     conda_env="MAPseq_processing",
     module_list=None,
-    slurm_options=dict(ntasks=1, time="72:00:00", mem="64G", partition="cpu"),
+    slurm_options=dict(ntasks=1, time="72:00:00", mem="350G", partition="hmem"),
 )
 def collate_error_correction_results(directory, temp_output):
     """Collate the results of the error correction jobs
@@ -607,37 +609,41 @@ def collate_error_correction_results(directory, temp_output):
     # barcode_file = pathlib.Path(barcode_file)
     # barcode = barcode_file.stem
 
-    corrected_path = directory.parent / "preprocessed_seq_corrected"
+    corrected_path = directory / "preprocessed_seq_corrected"
     corrected_path.mkdir(parents=True, exist_ok=True)
 
     for neuron_file in temp_output.glob("neuron_only_corrected_*.pkl"):
         barcode = neuron_file.stem.split("neuron_only_corrected_", 1)[1]
+        print(f'looking at {barcode}', flush=True)
         output_file = corrected_path.joinpath(f"corrected_{barcode}.csv")
         if output_file.is_file():
-            Warning.warn(f"Output file {output_file} already exists. Overwriting")
+            print(f"Warning: Output file {output_file} already exists. Overwriting", flush= True)
 
         # read all the files in the directory and concatenate them into one table
         all_files = temp_output.glob(f"{barcode}_batch_*.pkl")
         all_tables = []
         for f in all_files:
             all_tables.append(pd.read_pickle(f))
+        if not all_tables:
+            print(f'There are no {barcode} batch files', flush=True)
+            continue
         all_tables = pd.concat(all_tables)
         all_tables.to_csv(output_file)
         print("Saved corrected umi table", flush=True)
 
         # Delete the barcode only intermediate files
-        int_file = corrected_path.joinpath(f"neuron_only_corrected_{barcode}.pkl")
+        int_file = temp_output.joinpath(f"neuron_only_corrected_{barcode}.pkl")
         if int_file.is_file():
-            os.remove(int_file)
+        #    os.remove(int_file)
             print("Removed intermediate pkl file", flush=True)
         # delete the UMI batch files
-        for f in all_files:
-            os.remove(f)
+        #for f in all_files:
+        #    os.remove(f)
         print("Removed all batch files", flush=True)
 
     # start the next job
     join_tabs_and_split(
-        directory=str(directory.parent),
+        directory=str(directory),
         use_slurm=True,
         slurm_folder=parameters["SLURM_DIR"],
     )
