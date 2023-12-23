@@ -53,11 +53,12 @@ def load_parameters(directory="root"):
     module_list=None,
     slurm_options=dict(ntasks=1, time="24:00:00", mem="350G", partition="hmem"),
 )
-def convert_images(lcm_aligned_dir):
+def convert_images(lcm_aligned_dir, overwrite):
     """
     Function to convert LCM images into npy files with non-linear deformation
     Args:
         lcm_aligned_dir(str): path to where json file where Visualign output is
+        overwrite (str): 'yes' or 'no' - whether you want to overwrite current converted images in directory
     Returns: 
         None
      """
@@ -78,7 +79,7 @@ def convert_images(lcm_aligned_dir):
     for i, row in slice_coord['filename'].iteritems():
         section =row[:-len('.jpeg')]
         filename = f'{str(saving_path)}/allen_ccf_converted{section}'
-        if os.path.exists(f'{filename}.npy'):
+        if os.path.exists(f'{filename}.npy') and overwrite == 'no':
             print(f'{filename} exists already, moving to next', flush=True)
         else:
             print(f'Performing non-linear deformation for {section} at {datetime.datetime.now()}', flush=True)
@@ -115,12 +116,11 @@ def convert_images(lcm_aligned_dir):
             allen_vox = [xa, ya, za, one]
             np.save(filename, allen_vox)
 
-def get_z_value(lcm_dir, OB_first):
+def get_z_value(lcm_dir):
     """
     Function to get z value for each section, so you can calculate volumes.
     Args:
         lcm_dir (str): where parent LCM directory is
-        OB_first (str): 'yes' or 'no' - whether slicing direction is from OB to cerebellum or not 
         sections_with_nothing_before (list): list of sections (e.g.  ['s001', 's005']) whether there isn't a section in front of to take the z projection from
     Returns:
         table containing z projections
@@ -134,9 +134,6 @@ def get_z_value(lcm_dir, OB_first):
         if file.startswith('allen_ccf_converted_'):
             slice_name = file[20:24]
             slicenum = int(file[21:24])
-           # if OB_first == 'yes':
-            #    slice_before= slicenum-1
-           # elif OB_first == 'no':
             slice_before= slicenum+1
             if slice_before >9:
                 slicebefore_name = f's0{slice_before}'
@@ -155,6 +152,93 @@ def get_z_value(lcm_dir, OB_first):
     for slice in sections_with_nothing_before:
         add_z= add_z.append({'slice': slice, 'amountz': average_z},ignore_index=True)   
     return add_z
+
+@slurm_it(
+    conda_env="MAPseq_processing",
+    module_list=None,
+    slurm_options=dict(ntasks=1, time="72:00:00", mem="50G", partition="cpu"),
+)
+def get_euclidean_distance(directory):
+    """function to find z distance between slices
+    Args:
+        directory (str): directory where sections are
+    Returns:
+        None
+    """
+    add_z = pd.DataFrame(columns=['slice', 'amountz'], dtype=int)
+    saving_path = pathlib.Path(directory)/'allenccf/allen_ccf_coord'
+    sections_with_nothing_before =[]
+    sections_for_job = []
+    for file in os.listdir(saving_path):
+        if file.startswith('allen_ccf_converted_'):
+            slicenum = int(file[21:24])
+            slice_before= slicenum+1
+            slice_name = file[20:24]
+            if slice_before >9:
+                slicebefore_name = f's0{slice_before}'
+            if slice_before<10:
+                slicebefore_name = f's00{slice_before}' 
+            if pathlib.Path(saving_path/f'allen_ccf_converted_{slicebefore_name}.npy').exists():
+                calc_euclidean_distance(directory = directory, slice = slice_name, use_slurm=True, scripts_name=f"z_{slice_name}", slurm_folder='/camp/home/turnerb/slurm_logs')
+            if not pathlib.Path(saving_path/f'allen_ccf_converted_{slicebefore_name}.npy').exists():
+                sections_with_nothing_before.append(slice_name)
+    sections_with_nothing_before = np.array(sections_with_nothing_before)
+    np.save(f'{saving_path}/sections_with_nothing_before', sections_with_nothing_before)
+        
+@slurm_it(
+    conda_env="MAPseq_processing",
+    module_list=None,
+    slurm_options=dict(ntasks=1, time="72:00:00", mem="100G", partition="cpu"),
+)
+def calc_euclidean_distance(directory, slice):
+    """function to find z distance between slices
+    Args:
+        directory (str): directory where sections are
+        slice (str): which section you're looking at e.g. 's001'
+    Returns:
+        None
+    """
+    saving_path = pathlib.Path(directory)/'allenccf/allen_ccf_coord'
+    slicenum = int(slice[1:4])
+    slice_before= slicenum+1
+    if slice_before >9:
+        slicebefore_name = f's0{slice_before}'
+    if slice_before<10:
+        slicebefore_name = f's00{slice_before}' 
+    [x1a, y1a, z1a, one1] = np.load(saving_path/f'allen_ccf_converted_{slice}.npy')
+    [x2a, y2a, z2a, one2] = np.load(saving_path/f'allen_ccf_converted_{slicebefore_name}.npy')
+    point_z = x1a.flatten()
+    points_xy = np.column_stack((z1a.flatten(), y1a.flatten()))
+    # Stack x1 and y1 to create a single array for [x1, y1]
+    points_xy1 = np.column_stack((z2a.flatten(), y2a.flatten()))
+    point_z2 = x2a.flatten()
+    # Find the closest point in x1, y1 for each point in x, y
+    z_dist_points = []
+    closest_dist_points = []
+    for i, point in enumerate(points_xy):
+        distances = np.linalg.norm(points_xy1 - point, axis=1)
+        closest_index = np.argmin(distances)
+        z_distance = point_z2[closest_index] - point_z[i]
+        z_dist_points.append(z_distance)
+        closest_dist_points.append(distances[closest_index])
+    closest_dist_points= np.array(closest_dist_points)    
+    z_dist_points= np.array(z_dist_points)
+    z_dist_points =z_dist_points.reshape(x1a.shape)
+    closest_dist_points =closest_dist_points.reshape(x1a.shape)
+    np.save(f'{saving_path}/z_add_{slice}.npy', z_dist_points)
+    np.save(f'{saving_path}/euclid_distance_{slice}.npy', closest_dist_points)
+        #final_z = np.median(z_dist_points)
+        #add_z = pd.read_pickle(f'{directory}/add_z.pkl')
+        #add_z= add_z.append({'slice': slice_name, 'amountz': final_z},ignore_index=True)
+        #add_z.to_pickle(f'{directory}/add_z.pkl')
+    # if slice_before == 'no':
+    #     add_z = pd.read_pickle(f'{directory}/add_z.pkl')
+    #     average_z = add_z.loc[:, 'amountz'].mean()
+    #     for section in slice:
+    #         add_z= add_z.append({'slice': slice_name, 'amountz': average_z},ignore_index=True)
+    #     add_z.to_pickle(f'{directory}/add_z.pkl')
+    print(f'finished {slice}', flush=True)
+        
     
 def get_roi_vol(lcm_dir, add_z, allen_anno_path):
     """
@@ -212,10 +296,7 @@ def get_roi_vol(lcm_dir, add_z, allen_anno_path):
                 slices = -round(z_to_add/25)
             for x in range(slices):
                 if x >0:
-                    if z_moving_towards_OB == 'yes':
-                        newz = pixcoord[0]+x
-                    else:
-                        newz = pixcoord[0]-x #changed from plus to minus as going backwards
+                    newz = pixcoord[0]+x #changed from plus to minus as going backwards
                     slice = annotation[newz.flatten(), pixcoord[1].flatten(), pixcoord[2].flatten()].reshape(registered_slice.shape)
                     ROI_anno_add = slice*roi
                     ROI_anno = np.append(ROI_anno, ROI_anno_add)
@@ -240,6 +321,7 @@ def combine_tubes(lcm_dir, ROI_vol_path):
     Returns:
         None
     """
+    
     #combine volumes for LCM
     ROI_vol = pd.read_pickle(ROI_vol_path)
     final_pix = pd.DataFrame(columns=['tube', 'combined_pix', 'vol (um3)'], dtype=int)
@@ -273,3 +355,115 @@ def combine_tubes(lcm_dir, ROI_vol_path):
     finalpix1.to_pickle(f"{lcm_dir}/finalpix.pkl")
     #final_pix.to_pickle(lcm_dir/"finalpix.pkl")
     
+def get_acronymn(lcm_dir):
+    """
+    Function to take annotations, and get the acronymn for each of the brain areas that the ROIs are in
+    Args:
+        lcm_dir (str): the directory where the lcm registration info is all in
+    Returns:
+        None
+    """
+    #now generate empty table for the acronymns of all areas based on allen ccf
+    acronymncol = []
+    for id in regioncol:
+        if bg_atlas.structures[id]['acronym'][-1].isnumeric():
+            newid = bg_atlas.structures[id]["structure_id_path"][-2] #moving one level up the hierarchy if cortical layer
+        elif bg_atlas.structures[id]['acronym'][-2:]== '6a' or bg_atlas.structures[id]['acronym'][-2:]== '6b':
+            newid = bg_atlas.structures[id]["structure_id_path"][-2] #moving one level up the hierarchy if layer 6a/6b
+        else: newid = id
+        acronymn = bg_atlas.structures[newid]['acronym']
+        acronymncol.append(acronymn)
+    acronymncol= np.unique(acronymncol).tolist()
+    region_table = pd.DataFrame(columns = acronymncol, dtype =int)
+    #need to generate reference table to convert id's into higher bit of hierarchy.
+
+    for row, tube in finalpix1['tube'].iteritems():
+        regions = finalpix1.loc[row, 'combined_pix']
+        unique, counts = np.unique(regions, return_counts=True)
+        region_area = (counts/sum(counts))*(finalpix1.loc[row, 'vol (um3)'])
+        regions = unique[1:]
+        region_area = region_area[1:]
+        values = regions, region_area
+        region_table.at[row, 'sample'] = tube
+        index = -1
+        if regions.size != 0:
+            for id in np.nditer(regions):
+                index += 1
+                if bg_atlas.structures[id]['acronym'][-1].isnumeric():
+                    newid = bg_atlas.structures[id]["structure_id_path"][-2] #moving one level up the hierarchy if cortical layer
+                elif bg_atlas.structures[id]['acronym'][-2:]== '6a' or bg_atlas.structures[id]['acronym'][-2:]== '6b':
+                    newid = bg_atlas.structures[id]["structure_id_path"][-2] #moving one level up the hierarchy if layer 6a/6b
+                else: newid = id
+                acronym = bg_atlas.structures[newid]['acronym']
+                region_table.at[row, acronym]= region_area[index]
+    region_tab_contra = region_table
+#take areas in samples of contralateral hemisphere, and re-label as belonging to contra
+
+    for i, row in region_table.iterrows():
+        if region_table['sample'].iloc[i] in contra_samples:
+            for col in region_table.columns:
+                if col != 'sample'and col.startswith('Contra')==False and np.isnan(region_table[col].iloc[i])== False:
+                    newcol = 'Contra-' + col
+                    if newcol not in region_tab_contra:
+                        region_tab_contra[newcol]=0
+                    region_tab_contra[newcol].iloc[i] = region_table[col].iloc[i]
+                    region_tab_contra[col].iloc[i] =0
+                
+    nozero = region_table.fillna(0)
+    
+@slurm_it(
+    conda_env="MAPseq_processing_py39",
+    module_list=None,
+    slurm_options=dict(ntasks=1, time="24:00:00", mem="350G", partition="hmem"),
+)
+def group_ROI_coordinates(lcm_directory):
+    """
+    Function to take a template of allen atlas, then put all the roi's in appropriate coordinate positions, numbered by the sample number.
+    Args:
+        lcm_directory (str): path to where lcm directory is
+    Returns:
+        None
+    """
+#download av template to get shape
+    from allensdk.core.mouse_connectivity_cache import MouseConnectivityCache
+    mcc = MouseConnectivityCache(resolution=10)
+    avg_temp, meta = mcc.get_template_volume()
+
+    for ROI_to_look in os.listdir(ROI_path):
+    #region = ROI_path/'s015_TUBE6.png'
+        region = ROI_path/ROI_to_look
+        if ROI_to_look.startswith('s0') or ROI_to_look.startswith('S0'):
+            slicename = region.stem[1:4]
+            tube = region.stem[5:len(region.stem)].split('TUBE', 1)[1]
+            #if int(tube) in cortical_samples_table['Tube'].to_list():
+            [xa, ya, za, one] = np.load(reg_dir/f'allen_ccf_converted_s{slicename}.npy')
+            roi = plt.imread(ROI_path/f'{region}')
+            allencoord_roiya = roi*ya
+            allencoord_roiza = roi*za
+            allencoord_roixa= roi*xa
+            z_to_add = add_z.loc[add_z['slice'] == f's{slicename}', 'amountz'].iloc[0]
+
+            #convert the x, y, z coordinates to pixel
+            pixcoord = []
+            for i, axis in enumerate([allencoord_roixa, allencoord_roiya, allencoord_roiza]):
+                pixel = np.array(np.round(axis/10), dtype=int)
+                pixel[pixel <0] = 0
+                pixel[pixel >= empty_frame.shape[i]] = 0
+                pixcoord.append(pixel)
+            new_coord = np.zeros(pixcoord[0].shape)
+            z_add=0
+            for stack in range(int(np.round(z_to_add/10))):
+                for i in range(pixcoord[0].shape[0]):
+                    for j in range(pixcoord[0].shape[1]):
+                        if pixcoord[0][i, j] != 0:
+                            new_coord[i,j] = (pixcoord[0][i, j])-z_add
+                z_add = z_add+1
+                for k in range(pixcoord[0].shape[0]):
+                    for l in range(pixcoord[0].shape[1]):
+                        x = new_coord[k, l]
+                        y = pixcoord[1][k, l]
+                        z = pixcoord[2][k, l]
+                        if x != 0 and y != 0 and z != 0:
+                            empty_frame[int(x), int(y), int(z)] = int(tube)
+    np.save(f'{lcm_directory}/ROI_flatmap.npy', empty_frame)
+

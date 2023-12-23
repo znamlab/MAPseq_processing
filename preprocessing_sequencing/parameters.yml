@@ -14,11 +14,15 @@ general_expt_parameters:
   PROJECT: turnerb_V1_MAPseq
   RAW_DIR: /nemo/lab/znamenskiyp/home/shared/projects/turnerb_V1_MAPseq/BRAC8198.6c/Sequencing
   SCRIPT_PATH: /camp/home/turnerb/home/users/turnerb/code/MAPseq_processing
+
   SLURM_DIR: /camp/home/turnerb/slurm_logs
+
+#parameters for sequence correction
 sequence_processing_parameters:
   max_reads_per_correction: 10000000
   neuron_bc_length: 32
   neuron_identifier: ^.{30}[CT][CT]
+
   spike_in_identifier: ^.{24}ATCAGTCA
 split_samples_parameters:
   acq_id: [TUR4752A2_S75, TUR4752A2_S171]
@@ -34,3 +38,4 @@ split_samples_parameters:
   r2_part:
   - 0
   - 30
+
