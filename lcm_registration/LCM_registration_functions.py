@@ -16,6 +16,34 @@ from bg_atlasapi import BrainGlobeAtlas
 from lcm_registration import LCM_registration_functions as lrf
 from lcm_registration import visualign_functions as vis
 from znamutils import slurm_it
+from PIL import Image
+import os
+
+
+def convert_tif_to_jpg(input_folder, output_folder):
+    # Ensure the output directory exists
+    os.makedirs(output_folder, exist_ok=True)
+
+    # Loop through all files in the input directory
+    for filename in os.listdir(input_folder):
+        # Check if the file is a TIFF image
+        if filename.lower().endswith(('.tif', '.tiff')):
+            input_path = os.path.join(input_folder, filename)
+            
+            try:
+                # Load the TIFF image
+                with Image.open(input_path) as img:
+                    # Construct the output file path
+                    output_path = os.path.join(output_folder, os.path.splitext(filename)[0] + '.jpg')
+                    
+                    # Save as JPEG
+                    img.convert('RGB').save(output_path, 'JPEG')
+            
+            except OSError as e:
+                print(f"Error processing {filename}: {e}")
+                continue
+
+
 
 def load_parameters(directory="root"):
     """Load the parameters yaml file containting all the parameters required for
@@ -77,8 +105,12 @@ def convert_images(lcm_aligned_dir, overwrite):
                         [0, -25, 0, 0],
                         [13175, 7975, 0, 1]]
     for i, row in slice_coord['filename'].iteritems():
-        section =row[:-len('.jpeg')]
-        filename = f'{str(saving_path)}/allen_ccf_converted{section}'
+        
+        if row.endswith('.jpeg'):
+            section =row[:-len('.jpeg')]
+        elif row.endswith('.jpg'):
+            section =row[:-len('.jpg')]
+        filename = f'{str(saving_path)}/allen_ccf_converted_{section}'
         if os.path.exists(f'{filename}.npy') and overwrite == 'no':
             print(f'{filename} exists already, moving to next', flush=True)
         else:
@@ -116,41 +148,57 @@ def convert_images(lcm_aligned_dir, overwrite):
             allen_vox = [xa, ya, za, one]
             np.save(filename, allen_vox)
 
-def get_z_value(lcm_dir):
+def get_z_value(lcm_dir, euclidean = 'yes', s='upper'):
     """
     Function to get z value for each section, so you can calculate volumes.
     Args:
         lcm_dir (str): where parent LCM directory is
-        sections_with_nothing_before (list): list of sections (e.g.  ['s001', 's005']) whether there isn't a section in front of to take the z projection from
+        euclidean (str): 'yes' if you want to calculate z from median z difference between nearest 2d pixels in previous sections, 'no' if just want to crudely take average of subtraction of z between sections
+        s: 'upper' or 'lower'. Whether the start of the section 's{num}' is capitalised or not. e.g. s001 or S001
     Returns:
         table containing z projections
     """
     #iterate through individual slices, take average difference in in coordinates in z (which is x axes in allen ccf) for last slice (slice s001 for brain 1), take average of previous slices
     add_z = pd.DataFrame(columns=['slice', 'amountz'], dtype=int)
     #need to change for mega thick last bit of cortex section, so extend ROI through 3slices
-    saving_path = pathlib.Path(lcm_dir)/'allenccf/allen_ccf_coord'
+    saving_path = pathlib.Path(lcm_dir)/'allenccf/z_calc'
+    allen_ccf_path = pathlib.Path(lcm_dir)/'allenccf/allen_ccf_coord'
+    pathlib.Path(saving_path).mkdir(parents=True, exist_ok=True)
     sections_with_nothing_before = []
-    for file in os.listdir(saving_path):
+    if s == 'upper':
+        section_start = 'S'
+    else:
+        section_start = 's'
+    for file in os.listdir(allen_ccf_path):
         if file.startswith('allen_ccf_converted_'):
             slice_name = file[20:24]
             slicenum = int(file[21:24])
             slice_before= slicenum+1
             if slice_before >9:
-                slicebefore_name = f's0{slice_before}'
+                slicebefore_name = f'{section_start}0{slice_before}'
             if slice_before<10:
-                slicebefore_name = f's00{slice_before}' 
-            [x1a, y1a, z1a, one1] = np.load(saving_path/file)
-            if pathlib.Path(saving_path/f'allen_ccf_converted_{slicebefore_name}.npy').exists():
-                [x1a, y1a, z1a, one1] = np.load(saving_path/file)
-                [x2a, y2a, z2a, one2] = np.load(saving_path/f'allen_ccf_converted_{slicebefore_name}.npy')
-                dif = np.average(x2a.flatten()-x1a.flatten())
+                slicebefore_name = f'{section_start}00{slice_before}' 
+            [x1a, y1a, z1a, one1] = np.load(allen_ccf_path/file)
+            if pathlib.Path(allen_ccf_path/f'allen_ccf_converted_{slicebefore_name}.npy').exists():
+                if euclidean == 'no':
+                    [x1a, y1a, z1a, one1] = np.load(allen_ccf_path/file)
+                    [x2a, y2a, z2a, one2] = np.load(allen_ccf_path/f'allen_ccf_converted_{slicebefore_name}.npy')
+                    dif = np.median(x2a.flatten())-np.median(x1a.flatten())
+                if euclidean == 'yes':
+                    eucl_dist = np.load(saving_path/f'euclid_distance_{slice_name}.npy')
+                    z_dist = np.load(saving_path/f'z_add_{slice_name}.npy')
+                    #now find the median z_distances for top 20% of the array with the lowest euclidean distance
+                    flattened_indices = np.argsort(eucl_dist, axis=None)
+                    num_lowest_20_percent = int(len(flattened_indices) * 0.2)
+                    lowest_indices = np.unravel_index(flattened_indices[:num_lowest_20_percent], eucl_dist.shape)
+                    dif = np.median(z_dist[lowest_indices])
                 add_z= add_z.append({'slice': slice_name, 'amountz': dif},ignore_index=True)
             else:
                 sections_with_nothing_before.append(slice_name)
     #for slices where the one's before are missing, extend them by the mean of slice z extensions for the others
-    average_z = add_z['amountz'].mean()
+    median_z = add_z['amountz'].median()
     for slice in sections_with_nothing_before:
-        add_z= add_z.append({'slice': slice, 'amountz': average_z},ignore_index=True)   
+        add_z= add_z.append({'slice': slice, 'amountz': median_z},ignore_index=True)   
     return add_z
 
 @slurm_it(
@@ -165,22 +213,26 @@ def get_euclidean_distance(directory):
     Returns:
         None
     """
-    add_z = pd.DataFrame(columns=['slice', 'amountz'], dtype=int)
-    saving_path = pathlib.Path(directory)/'allenccf/allen_ccf_coord'
+    #add_z = pd.DataFrame(columns=['slice', 'amountz'], dtype=int)
+    saving_path = pathlib.Path(directory)/'allenccf/z_calc'
+    pathlib.Path(saving_path).mkdir(parents=True, exist_ok=True)
+    allen_ccf_path = pathlib.Path(directory)/'allenccf/allen_ccf_coord'
     sections_with_nothing_before =[]
-    sections_for_job = []
-    for file in os.listdir(saving_path):
+    #sections_for_job = []
+    for file in os.listdir(allen_ccf_path):
         if file.startswith('allen_ccf_converted_'):
             slicenum = int(file[21:24])
             slice_before= slicenum+1
             slice_name = file[20:24]
+            s = file[20] #specified, as sometimes this is saved in different cases
             if slice_before >9:
-                slicebefore_name = f's0{slice_before}'
+                slicebefore_name = f'{s}0{slice_before}'
             if slice_before<10:
-                slicebefore_name = f's00{slice_before}' 
-            if pathlib.Path(saving_path/f'allen_ccf_converted_{slicebefore_name}.npy').exists():
+                slicebefore_name = f'{s}00{slice_before}' 
+            if pathlib.Path(allen_ccf_path/f'allen_ccf_converted_{slicebefore_name}.npy').exists():
+                print(f'sending job for {slice_name}', flush=True)
                 calc_euclidean_distance(directory = directory, slice = slice_name, use_slurm=True, scripts_name=f"z_{slice_name}", slurm_folder='/camp/home/turnerb/slurm_logs')
-            if not pathlib.Path(saving_path/f'allen_ccf_converted_{slicebefore_name}.npy').exists():
+            if not pathlib.Path(allen_ccf_path/f'allen_ccf_converted_{slicebefore_name}.npy').exists():
                 sections_with_nothing_before.append(slice_name)
     sections_with_nothing_before = np.array(sections_with_nothing_before)
     np.save(f'{saving_path}/sections_with_nothing_before', sections_with_nothing_before)
@@ -198,15 +250,17 @@ def calc_euclidean_distance(directory, slice):
     Returns:
         None
     """
-    saving_path = pathlib.Path(directory)/'allenccf/allen_ccf_coord'
+    saving_path = pathlib.Path(directory)/'allenccf/z_calc'
+    allen_ccf_path = pathlib.Path(directory)/'allenccf/allen_ccf_coord'
     slicenum = int(slice[1:4])
     slice_before= slicenum+1
+    s = slice[0]
     if slice_before >9:
-        slicebefore_name = f's0{slice_before}'
+        slicebefore_name = f'{s}0{slice_before}'
     if slice_before<10:
-        slicebefore_name = f's00{slice_before}' 
-    [x1a, y1a, z1a, one1] = np.load(saving_path/f'allen_ccf_converted_{slice}.npy')
-    [x2a, y2a, z2a, one2] = np.load(saving_path/f'allen_ccf_converted_{slicebefore_name}.npy')
+        slicebefore_name = f'{s}00{slice_before}' 
+    [x1a, y1a, z1a, one1] = np.load(allen_ccf_path/f'allen_ccf_converted_{slice}.npy')
+    [x2a, y2a, z2a, one2] = np.load(allen_ccf_path/f'allen_ccf_converted_{slicebefore_name}.npy')
     point_z = x1a.flatten()
     points_xy = np.column_stack((z1a.flatten(), y1a.flatten()))
     # Stack x1 and y1 to create a single array for [x1, y1]
@@ -239,26 +293,34 @@ def calc_euclidean_distance(directory, slice):
     #     add_z.to_pickle(f'{directory}/add_z.pkl')
     print(f'finished {slice}', flush=True)
         
-    
-def get_roi_vol(lcm_dir, add_z, allen_anno_path):
+@slurm_it(
+    conda_env="MAPseq_processing",
+    module_list=None,
+    slurm_options=dict(ntasks=1, time="48:00:00", mem="50G", partition="cpu"))
+def get_roi_vol(lcm_dir, allen_anno_path, s = 'upper'):
     """
     Function to calculate roi volumes.
     Args:
         lcm_dir (str): parent directory for lcm reg
-        add_z: table output from 'get_z_value' function
         allen_anno_path (str): path to where allen annotation nrrd file is
+        s: whether the start of the section 's{num}' is capitalised or not. e.g. s001 or S001
     Returns:
         ROI_vol table    
     """
     #load annotation
+    add_z = get_z_value(lcm_dir = lcm_dir, euclidean = 'yes', s='upper')
     allen_anno = nrrd.read(allen_anno_path)
     allen_anno = np.array(allen_anno)
     annotation = allen_anno[0]
     roi_path = pathlib.Path(lcm_dir)/'rois'
     ROI_vol=pd.DataFrame()
+    if s == 'upper':
+        section_start = 'S'
+    else:
+        section_start = 's'
     for region in os.listdir(roi_path):
         if region.startswith("S0") or region.startswith("s0"):
-            slice_name = f's{region[1:4]}'
+            slice_name = f'{section_start}{region[1:4]}'
             tube = region[5:len(region)].split('TUBE', 1)[1]
             tube =tube[:-4]
             [xa, ya, za, one] = np.load(lcm_dir/f'allenccf/allen_ccf_coord/allen_ccf_converted_{slice_name}.npy')
