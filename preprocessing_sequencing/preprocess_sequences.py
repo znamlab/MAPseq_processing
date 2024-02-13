@@ -379,10 +379,11 @@ def preprocess_reads(directory, barcode_range, max_file_size=100, extremely_larg
                     with open(directory_path/i/'BC_split'/file, "r") as file_next:
                         file_next_contents = file_next.read()
                     file_1_contents = file_1_contents + file_next_contents
+                    del file_next, file_next_contents
         out_path =  BC_split_combined/file
         with open(out_path, "w") as output_file:
             output_file.write(file_1_contents)
-        del file_1, file_next, file_1_contents, file_next_contents, output_file
+        del file_1, file_1_contents, output_file
     barcode_range = tuple(parameters["barcode_range"])
     day = datetime.now().strftime("%Y-%m-%d")
     slurm_folder = pathlib.Path(parameters["SLURM_DIR"] + f"/{day}")
@@ -436,7 +437,7 @@ def preprocess_reads(directory, barcode_range, max_file_size=100, extremely_larg
     module_list=None,
     slurm_options=dict(ntasks=1, time="72:00:00", mem="64G", partition="cpu"),
 )
-def process_neuron_barcodes(barcode_file, directory, redo=False):
+def process_neuron_barcodes(barcode_file, directory, redo=True):
     """Function to process the barcode sequences, removing homopolymers before
     calling error correction.
 
@@ -879,7 +880,7 @@ def combine_switch_tables(template_sw_directory):
 @slurm_it(
     conda_env="MAPseq_processing",
     module_list=None,
-    slurm_options=dict(ntasks=1, time="72:00:00", mem="250G", partition="cpu"),
+    slurm_options=dict(ntasks=1, time="72:00:00", mem="50G", partition="cpu"),
 )
 def combine_UMI_and_BC(directory):
     """
