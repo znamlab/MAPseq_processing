@@ -236,7 +236,7 @@ def get_z_value(parameters_path, euclidean):
             if pathlib.Path(
                 allen_ccf_path / f"allen_ccf_converted_{slicebefore_name}.npy"
             ).exists():
-                if euclidean == "no":
+                if euclidean == False:
                     [x1a, y1a, z1a, one1] = np.load(allen_ccf_path / file)
                     [x2a, y2a, z2a, one2] = np.load(
                         allen_ccf_path / f"allen_ccf_converted_{slicebefore_name}.npy"
@@ -645,6 +645,10 @@ def group_ROI_coordinates(parameters_path):
         if ROI_to_look.startswith("s0") or ROI_to_look.startswith("S0"):
             slicename = region.stem[1:4]
             tube = region.stem[5 : len(region.stem)].split("TUBE", 1)[1]
+            # some of the roi's are pooled due to missing lcm images that are too hard to determine, these are specified in parameters file. We group these into one sample
+            for tube_to_group in parameters["rois_to_combine"]:
+                if tube in parameters["rois_to_combine"][tube_to_group]:
+                    tube = tube_to_group
             # if int(tube) in cortical_samples_table['Tube'].to_list():
             [xa, ya, za, one] = np.load(
                 reg_dir / f"allen_ccf_converted_{section_start}{slicename}.npy"
