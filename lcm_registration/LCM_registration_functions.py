@@ -18,6 +18,7 @@ from lcm_registration import visualign_functions as vis
 from znamutils import slurm_it
 from PIL import Image
 import os
+import yaml
 
 
 def convert_tif_to_jpg(input_folder, output_folder):
@@ -68,9 +69,9 @@ def load_parameters(directory="root"):
         return flattened_dict
 
     if directory == "root":
-        parameters_file = pathlib.Path(__file__).parent / "lcm_parameters.yml"
+        parameters_file = pathlib.Path(__file__).parent / "parameters.yml"
     else:
-        parameters_file = pathlib.Path(directory) / "lcm_parameters.yml"
+        parameters_file = pathlib.Path(directory) / "parameters.yml"
     with open(parameters_file, "r") as f:
         parameters = flatten_dict(yaml.safe_load(f))
     return parameters
@@ -81,16 +82,18 @@ def load_parameters(directory="root"):
     module_list=None,
     slurm_options=dict(ntasks=1, time="24:00:00", mem="350G", partition="hmem"),
 )
-def convert_images(lcm_aligned_dir, overwrite):
+def convert_images(parameters_path, overwrite = 'yes'):
     """
     Function to convert LCM images into npy files with non-linear deformation
     Args:
-        lcm_aligned_dir(str): path to where json file where Visualign output is
+        parameters_path(str): path to where parameters file is (make sure you've inputed lcm registration params)
         overwrite (str): 'yes' or 'no' - whether you want to overwrite current converted images in directory
     Returns: 
         None
      """
     #make saving path directory if doesn't exist already
+    parameters =load_parameters(directory=parameters_path)
+    lcm_aligned_dir = pathlib.Path(parameters["lcm_aligned_dir"])
     saving_path = pathlib.Path(lcm_aligned_dir).parents[1]/'allenccf/allen_ccf_coord'
     pathlib.Path(saving_path).mkdir(parents=True, exist_ok=True)
     with open(lcm_aligned_dir) as fp:
@@ -148,17 +151,21 @@ def convert_images(lcm_aligned_dir, overwrite):
             allen_vox = [xa, ya, za, one]
             np.save(filename, allen_vox)
 
-def get_z_value(lcm_dir, euclidean = 'yes', s='upper'):
+def get_z_value(parameters_path, euclidean):
     """
     Function to get z value for each section, so you can calculate volumes.
     Args:
+        parameters_path(str): path to where parameters yaml file is
         lcm_dir (str): where parent LCM directory is
-        euclidean (str): 'yes' if you want to calculate z from median z difference between nearest 2d pixels in previous sections, 'no' if just want to crudely take average of subtraction of z between sections
+        euclidean (str): true if you want to calculate z from median z difference between nearest 2d pixels in previous sections, 'no' if just want to crudely take average of subtraction of z between sections
         s: 'upper' or 'lower'. Whether the start of the section 's{num}' is capitalised or not. e.g. s001 or S001
     Returns:
         table containing z projections
     """
     #iterate through individual slices, take average difference in in coordinates in z (which is x axes in allen ccf) for last slice (slice s001 for brain 1), take average of previous slices
+    parameters =load_parameters(directory=parameters_path)
+    lcm_dir = pathlib.Path(parameters["lcm_directory"])
+    s = parameters["s"]
     add_z = pd.DataFrame(columns=['slice', 'amountz'], dtype=int)
     #need to change for mega thick last bit of cortex section, so extend ROI through 3slices
     saving_path = pathlib.Path(lcm_dir)/'allenccf/z_calc'
@@ -184,7 +191,8 @@ def get_z_value(lcm_dir, euclidean = 'yes', s='upper'):
                     [x1a, y1a, z1a, one1] = np.load(allen_ccf_path/file)
                     [x2a, y2a, z2a, one2] = np.load(allen_ccf_path/f'allen_ccf_converted_{slicebefore_name}.npy')
                     dif = np.median(x2a.flatten())-np.median(x1a.flatten())
-                if euclidean == 'yes':
+                    add_z= add_z.append({'slice': slice_name, 'amountz': dif},ignore_index=True)
+                if euclidean == True:
                     eucl_dist = np.load(saving_path/f'euclid_distance_{slice_name}.npy')
                     z_dist = np.load(saving_path/f'z_add_{slice_name}.npy')
                     #now find the median z_distances for top 20% of the array with the lowest euclidean distance
@@ -192,7 +200,7 @@ def get_z_value(lcm_dir, euclidean = 'yes', s='upper'):
                     num_lowest_20_percent = int(len(flattened_indices) * 0.2)
                     lowest_indices = np.unravel_index(flattened_indices[:num_lowest_20_percent], eucl_dist.shape)
                     dif = np.median(z_dist[lowest_indices])
-                add_z= add_z.append({'slice': slice_name, 'amountz': dif},ignore_index=True)
+                    add_z= add_z.append({'slice': slice_name, 'amountz': dif},ignore_index=True)
             else:
                 sections_with_nothing_before.append(slice_name)
     #for slices where the one's before are missing, extend them by the mean of slice z extensions for the others
@@ -204,16 +212,18 @@ def get_z_value(lcm_dir, euclidean = 'yes', s='upper'):
 @slurm_it(
     conda_env="MAPseq_processing",
     module_list=None,
-    slurm_options=dict(ntasks=1, time="72:00:00", mem="50G", partition="cpu"),
+    slurm_options=dict(ntasks=1, time="24:00:00", mem="5G", partition="cpu"),
 )
-def get_euclidean_distance(directory):
+def get_euclidean_distance(parameters_path):
     """function to find z distance between slices
     Args:
-        directory (str): directory where sections are
+        parameters_path (str): path to where lcm parameters yml file is
     Returns:
         None
     """
     #add_z = pd.DataFrame(columns=['slice', 'amountz'], dtype=int)
+    parameters =load_parameters(directory=parameters_path)
+    directory = pathlib.Path(parameters["lcm_directory"])
     saving_path = pathlib.Path(directory)/'allenccf/z_calc'
     pathlib.Path(saving_path).mkdir(parents=True, exist_ok=True)
     allen_ccf_path = pathlib.Path(directory)/'allenccf/allen_ccf_coord'
@@ -231,7 +241,7 @@ def get_euclidean_distance(directory):
                 slicebefore_name = f'{s}00{slice_before}' 
             if pathlib.Path(allen_ccf_path/f'allen_ccf_converted_{slicebefore_name}.npy').exists():
                 print(f'sending job for {slice_name}', flush=True)
-                calc_euclidean_distance(directory = directory, slice = slice_name, use_slurm=True, scripts_name=f"z_{slice_name}", slurm_folder='/camp/home/turnerb/slurm_logs')
+                calc_euclidean_distance(directory = str(directory), slice = slice_name, use_slurm=True, scripts_name=f"z_{slice_name}", slurm_folder='/camp/home/turnerb/slurm_logs')
             if not pathlib.Path(allen_ccf_path/f'allen_ccf_converted_{slicebefore_name}.npy').exists():
                 sections_with_nothing_before.append(slice_name)
     sections_with_nothing_before = np.array(sections_with_nothing_before)
@@ -240,7 +250,7 @@ def get_euclidean_distance(directory):
 @slurm_it(
     conda_env="MAPseq_processing",
     module_list=None,
-    slurm_options=dict(ntasks=1, time="72:00:00", mem="100G", partition="cpu"),
+    slurm_options=dict(ntasks=1, time="72:00:00", mem="50G", partition="cpu"),
 )
 def calc_euclidean_distance(directory, slice):
     """function to find z distance between slices
@@ -297,18 +307,23 @@ def calc_euclidean_distance(directory, slice):
     conda_env="MAPseq_processing",
     module_list=None,
     slurm_options=dict(ntasks=1, time="48:00:00", mem="50G", partition="cpu"))
-def get_roi_vol(lcm_dir, allen_anno_path, s = 'upper'):
+def get_roi_vol(parameters_path):
     """
     Function to calculate roi volumes.
     Args:
+        parameters_path(str): path to where parameters yml file is
         lcm_dir (str): parent directory for lcm reg
         allen_anno_path (str): path to where allen annotation nrrd file is
         s: whether the start of the section 's{num}' is capitalised or not. e.g. s001 or S001
     Returns:
-        ROI_vol table    
+        None  
     """
     #load annotation
-    add_z = get_z_value(lcm_dir = lcm_dir, euclidean = 'yes', s='upper')
+    parameters =load_parameters(directory=parameters_path)
+    allen_anno_path = parameters["allen_annotation_path"]
+    s= parameters["s"]
+    lcm_dir = pathlib.Path(parameters['lcm_directory'])
+    add_z = get_z_value(parameters_path= parameters_path, euclidean = parameters['euclidean'])
     allen_anno = nrrd.read(allen_anno_path)
     allen_anno = np.array(allen_anno)
     annotation = allen_anno[0]
@@ -367,7 +382,7 @@ def get_roi_vol(lcm_dir, allen_anno_path, s = 'upper'):
             region_vol = (counts/sum(counts))*vol_roi
             ROI_vol= ROI_vol.append({'slice': slice_name, 'tube': tube, 'z_added': z_to_add, 'vol (um3)': vol_roi, 'region_pix': ROI_anno, 'unique_regions': unique[1:], 'region_vol (um3)': region_vol[1:]},ignore_index=True)
     ROI_vol.to_pickle(lcm_dir/"ROI_vol.pkl")
-    return ROI_vol
+    #return ROI_vol
 
 @slurm_it(
     conda_env="MAPseq_processing",
@@ -478,7 +493,7 @@ def get_acronymn(lcm_dir):
     module_list=None,
     slurm_options=dict(ntasks=1, time="24:00:00", mem="350G", partition="hmem"),
 )
-def group_ROI_coordinates(lcm_directory):
+def group_ROI_coordinates(parameters_path):
     """
     Function to take a template of allen atlas, then put all the roi's in appropriate coordinate positions, numbered by the sample number.
     Args:
@@ -486,11 +501,18 @@ def group_ROI_coordinates(lcm_directory):
     Returns:
         None
     """
-#download av template to get shape
-    from allensdk.core.mouse_connectivity_cache import MouseConnectivityCache
-    mcc = MouseConnectivityCache(resolution=10)
-    avg_temp, meta = mcc.get_template_volume()
-
+    parameters =load_parameters(directory=parameters_path)
+    lcm_directory = parameters["lcm_directory"]
+    euclidean = parameters["euclidean"]
+    add_z = get_z_value(lcm_dir = lcm_dir, euclidean = euclidean)
+    empty_frame = np.zeros((1320, 800, 1140)) #this is the shape of the average template 10um ccf
+    ROI_path = pathlib.Path(lcm_directory)/'rois'
+    reg_dir = pathlib.Path(lcm_directory)/'allenccf/allen_ccf_coord'
+    s = parameters["s"]
+    if s == 'upper':
+        section_start = 'S'
+    else:
+        section_start = 's'
     for ROI_to_look in os.listdir(ROI_path):
     #region = ROI_path/'s015_TUBE6.png'
         region = ROI_path/ROI_to_look
@@ -498,12 +520,12 @@ def group_ROI_coordinates(lcm_directory):
             slicename = region.stem[1:4]
             tube = region.stem[5:len(region.stem)].split('TUBE', 1)[1]
             #if int(tube) in cortical_samples_table['Tube'].to_list():
-            [xa, ya, za, one] = np.load(reg_dir/f'allen_ccf_converted_s{slicename}.npy')
+            [xa, ya, za, one] = np.load(reg_dir/f'allen_ccf_converted_{section_start}{slicename}.npy')
             roi = plt.imread(ROI_path/f'{region}')
             allencoord_roiya = roi*ya
             allencoord_roiza = roi*za
             allencoord_roixa= roi*xa
-            z_to_add = add_z.loc[add_z['slice'] == f's{slicename}', 'amountz'].iloc[0]
+            z_to_add = add_z.loc[add_z['slice'] == f'{section_start}{slicename}', 'amountz'].iloc[0]
 
             #convert the x, y, z coordinates to pixel
             pixcoord = []
@@ -514,6 +536,7 @@ def group_ROI_coordinates(lcm_directory):
                 pixcoord.append(pixel)
             new_coord = np.zeros(pixcoord[0].shape)
             z_add=0
+            
             for stack in range(int(np.round(z_to_add/10))):
                 for i in range(pixcoord[0].shape[0]):
                     for j in range(pixcoord[0].shape[1]):
@@ -527,5 +550,5 @@ def group_ROI_coordinates(lcm_directory):
                         z = pixcoord[2][k, l]
                         if x != 0 and y != 0 and z != 0:
                             empty_frame[int(x), int(y), int(z)] = int(tube)
-    np.save(f'{lcm_directory}/ROI_flatmap.npy', empty_frame)
+    np.save(f'{lcm_directory}/ROI_3D.npy', empty_frame)
 
