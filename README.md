@@ -14,6 +14,24 @@ Register slices using [QuickNII](https://quicknii.readthedocs.io/en/latest/), fo
 **Get LCM sample coordinates in Allen CCF**
 Registered input from VisuAlign is in the form of json file with o, u, v 3d vectors and markers, which providing positional and non-linear transformation information. These data are used to transform each slice into allen ccf coordinates and extract coordinates, extended to 3d volumes from one slice to the next. Functions in LCM_registration_functions.py and visualign_functions.py in lcm_registration do this for you.
 
+N.B. Make sure to update lcm registration parameters in parameters yaml file in Sequencing folder.
+
+**lcm_registration function pipeline:**
+
+convert_images
+    |
+    v
+get_euclidean_distance -> calc_euclidean_distance
+    |
+    v       
+group_ROI_coordinates
+    |
+    v
+generate_region_table_across_samples -> get_acronymn
+    |
+    v
+   END
+
 **Pre-process sequencing data**
 Make sure to update the parameters.yml file in preprocessing_sequencing folder. A copy is then saved into the project folder, and you then update that one from then on.
 All the functions for preprocessing are in the preprocess_sequences.py script. Initially run 'start_splitting.py' in the '/scripts' folder, and each of the functions will run sequentially up to the point where you need to manually adjust parameters for UMI count cut-off and template switching cut-off. At this point, run the notebook in '/preprocessing_sequencing/notebooks/determine_UMI_cutoff_and_template_switching_thresholds.ipynb' to visualise UMI count distribution etc., adjust parameters, and run the next section to finish preprocessing.
