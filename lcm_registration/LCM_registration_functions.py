@@ -256,7 +256,7 @@ def get_z_value(parameters_path, euclidean):
                     lowest_indices = np.unravel_index(
                         flattened_indices[:num_lowest_20_percent], eucl_dist.shape
                     )
-                    dif = np.median(z_dist[lowest_indices])
+                    dif = np.mean(z_dist[lowest_indices])
                     add_z = add_z.append(
                         {"slice": slice_name, "amountz": dif}, ignore_index=True
                     )
@@ -289,6 +289,7 @@ def get_euclidean_distance(parameters_path):
     allen_ccf_path = pathlib.Path(directory) / "allenccf/allen_ccf_coord"
     sections_with_nothing_before = []
     # sections_for_job = []
+    job_list = []
     for file in os.listdir(allen_ccf_path):
         if file.startswith("allen_ccf_converted_"):
             slicenum = int(file[21:24])
@@ -303,19 +304,27 @@ def get_euclidean_distance(parameters_path):
                 allen_ccf_path / f"allen_ccf_converted_{slicebefore_name}.npy"
             ).exists():
                 print(f"sending job for {slice_name}", flush=True)
-                calc_euclidean_distance(
+                job = calc_euclidean_distance(
                     directory=str(directory),
                     slice=slice_name,
                     use_slurm=True,
                     scripts_name=f"z_{slice_name}",
                     slurm_folder="/camp/home/turnerb/slurm_logs",
                 )
+                job_list.append(job)
             if not pathlib.Path(
                 allen_ccf_path / f"allen_ccf_converted_{slicebefore_name}.npy"
             ).exists():
                 sections_with_nothing_before.append(slice_name)
-    sections_with_nothing_before = np.array(sections_with_nothing_before)
-    np.save(f"{saving_path}/sections_with_nothing_before", sections_with_nothing_before)
+    # sections_with_nothing_before = np.array(sections_with_nothing_before)
+    # np.save(f"{saving_path}/sections_with_nothing_before", sections_with_nothing_before)
+    job_list = ":".join(map(str, job_list))
+    lrf.group_ROI_coordinates(
+        parameters_path=parameters_path,
+        use_slurm=True,
+        slurm_folder="/camp/home/turnerb/slurm_logs",
+        job_dependency=job_list,
+    )
 
 
 @slurm_it(
@@ -353,27 +362,19 @@ def calc_euclidean_distance(directory, slice):
     z_dist_points = []
     closest_dist_points = []
     for i, point in enumerate(points_xy):
-        distances = np.linalg.norm(points_xy1 - point, axis=1)
-        closest_index = np.argmin(distances)
-        z_distance = point_z2[closest_index] - point_z[i]
-        z_dist_points.append(z_distance)
-        closest_dist_points.append(distances[closest_index])
+        if i % 100 == 0:
+            distances = np.linalg.norm(points_xy1 - point, axis=1)
+            closest_index = np.argmin(distances)
+            z_distance = point_z2[closest_index] - point_z[i]
+            z_dist_points.append(z_distance)
+            closest_dist_points.append(distances[closest_index])
     closest_dist_points = np.array(closest_dist_points)
     z_dist_points = np.array(z_dist_points)
-    z_dist_points = z_dist_points.reshape(x1a.shape)
-    closest_dist_points = closest_dist_points.reshape(x1a.shape)
+    # z_dist_points = z_dist_points.reshape(x1a.shape)
+    # closest_dist_points = closest_dist_points.reshape(x1a.shape)
     np.save(f"{saving_path}/z_add_{slice}.npy", z_dist_points)
     np.save(f"{saving_path}/euclid_distance_{slice}.npy", closest_dist_points)
-    # final_z = np.median(z_dist_points)
-    # add_z = pd.read_pickle(f'{directory}/add_z.pkl')
-    # add_z= add_z.append({'slice': slice_name, 'amountz': final_z},ignore_index=True)
-    # add_z.to_pickle(f'{directory}/add_z.pkl')
-    # if slice_before == 'no':
-    #     add_z = pd.read_pickle(f'{directory}/add_z.pkl')
-    #     average_z = add_z.loc[:, 'amountz'].mean()
-    #     for section in slice:
-    #         add_z= add_z.append({'slice': slice_name, 'amountz': average_z},ignore_index=True)
-    #     add_z.to_pickle(f'{directory}/add_z.pkl')
+
     print(f"finished {slice}", flush=True)
 
 
@@ -481,7 +482,6 @@ def get_roi_vol(parameters_path):
                 ignore_index=True,
             )
     ROI_vol.to_pickle(lcm_dir / "ROI_vol.pkl")
-    # return ROI_vol
 
 
 @slurm_it(
@@ -613,7 +613,7 @@ def get_acronymn(lcm_dir):
 
 
 @slurm_it(
-    conda_env="MAPseq_processing_py39",
+    conda_env="MAPseq_processing",
     module_list=None,
     slurm_options=dict(ntasks=1, time="24:00:00", mem="350G", partition="hmem"),
 )
@@ -627,8 +627,9 @@ def group_ROI_coordinates(parameters_path):
     """
     parameters = load_parameters(directory=parameters_path)
     lcm_directory = parameters["lcm_directory"]
-    euclidean = parameters["euclidean"]
-    add_z = get_z_value(lcm_dir=lcm_dir, euclidean=euclidean)
+    add_z = get_z_value(
+        parameters_path=parameters_path, euclidean=parameters["euclidean"]
+    )
     empty_frame = np.zeros(
         (1320, 800, 1140)
     )  # this is the shape of the average template 10um ccf
@@ -677,7 +678,7 @@ def group_ROI_coordinates(parameters_path):
                 for i in range(pixcoord[0].shape[0]):
                     for j in range(pixcoord[0].shape[1]):
                         if pixcoord[0][i, j] != 0:
-                            new_coord[i, j] = (pixcoord[0][i, j]) - z_add
+                            new_coord[i, j] = (pixcoord[0][i, j]) + z_add
                 z_add = z_add + 1
                 for k in range(pixcoord[0].shape[0]):
                     for l in range(pixcoord[0].shape[1]):
@@ -687,3 +688,59 @@ def group_ROI_coordinates(parameters_path):
                         if x != 0 and y != 0 and z != 0:
                             empty_frame[int(x), int(y), int(z)] = int(tube)
     np.save(f"{lcm_directory}/ROI_3D.npy", empty_frame)
+    print("finished, sending final job")
+    generate_region_table_across_samples(
+        parameters_path=parameters_path,
+        use_slurm=True,
+        slurm_folder="/camp/home/turnerb/slurm_logs",
+    )
+
+
+@slurm_it(
+    conda_env="MAPseq_processing",
+    module_list=None,
+    slurm_options=dict(ntasks=1, time="48:00:00", mem="50G", partition="cpu"),
+)
+def generate_region_table_across_samples(parameters_path):
+    """
+    Function to take 3D numpy array from 'group_ROI_coordinates' function, and generate a table containing allen atlas index for brain regions in each sample, as well as the total volume
+    Args:
+        parameters_path(str): path to where directory where parameters yml file is contained.
+    Returns:
+        None
+    """
+    parameters = load_parameters(directory=parameters_path)
+    lcm_dir = pathlib.Path(parameters["lcm_directory"])
+    roi_array = np.load(lcm_dir / "ROI_3D.npy")
+    annotation_data = nrrd.read(parameters["allen_annotation_path"])
+    roi_numbers = np.unique(roi_array)[1:]
+    voxel_volume = (
+        10**3
+    )  # Voxel volume in cubic micrometers (assuming 10um resolution)
+
+    roi_volumes = []
+    roi_regions = []
+
+    for roi_num in roi_numbers:
+        # Count voxels for each ROI
+        roi_voxel_count = np.sum(roi_array == roi_num)
+        # Calculate volume in cubic micrometers
+        roi_volume_um = roi_voxel_count * voxel_volume
+        roi_volumes.append(roi_volume_um)
+
+        # Find brain regions corresponding to each voxel in the ROI
+        regions = []
+        for index in np.argwhere(roi_array == roi_num):
+            annotation_label = annotation_data[tuple(index)]
+            regions.append(annotation_label)
+
+        roi_regions.append(regions)
+    # Create DataFrame
+    region_samples_dataframe = pd.DataFrame(
+        {
+            "ROI Number": roi_numbers,
+            "Volume (um^3)": roi_volumes,
+            "Brain Regions": roi_regions,
+        }
+    )
+    region_samples_dataframe.to_pickle(lcm_dir / "sample_vol_and_regions")
