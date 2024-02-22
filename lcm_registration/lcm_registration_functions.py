@@ -13,7 +13,7 @@ import seaborn as sb
 import pathlib
 import pathlib
 from bg_atlasapi import BrainGlobeAtlas
-from lcm_registration import LCM_registration_functions as lrf
+from lcm_registration import lcm_registration_functions as lrf
 from lcm_registration import visualign_functions as vis
 from znamutils import slurm_it
 from PIL import Image
@@ -355,10 +355,9 @@ def calc_euclidean_distance(directory, slice):
     )
     point_z = x1a.flatten()
     points_xy = np.column_stack((z1a.flatten(), y1a.flatten()))
-    # Stack x1 and y1 to create a single array for [x1, y1]
     points_xy1 = np.column_stack((z2a.flatten(), y2a.flatten()))
     point_z2 = x2a.flatten()
-    # Find the closest point in x1, y1 for each point in x, y
+    # find the closest point in x1, y1 for each point in x, y
     z_dist_points = []
     closest_dist_points = []
     for i, point in enumerate(points_xy):
@@ -687,10 +686,10 @@ def group_ROI_coordinates(parameters_path):
                         z = pixcoord[2][k, l]
                         if x != 0 and y != 0 and z != 0:
                             empty_frame[int(x), int(y), int(z)] = int(tube)
-    
+
     remove_hemisphere_overlap(empty_frame)
     np.save(f"{lcm_directory}/ROI_3D.npy", empty_frame)
-    
+
     print("finished, sending final job")
     generate_region_table_across_samples(
         parameters_path=parameters_path,
@@ -744,10 +743,6 @@ def remove_hemisphere_overlap(roi_array):
     return roi_array_processed
 
 
-# Example usage:
-# Assuming roi_array is your 3D numpy array containing the ROIs
-processed_roi_array = remove_hemisphere_overlap(ROI_3D)
-
 @slurm_it(
     conda_env="MAPseq_processing",
     module_list=None,
@@ -765,6 +760,8 @@ def generate_region_table_across_samples(parameters_path):
     lcm_dir = pathlib.Path(parameters["lcm_directory"])
     roi_array = np.load(lcm_dir / "ROI_3D.npy")
     annotation_data = nrrd.read(parameters["allen_annotation_path"])
+    allen_anno = np.array(annotation_data)
+    annotation = allen_anno[0]
     roi_numbers = np.unique(roi_array)[1:]
     voxel_volume = (
         10**3
@@ -783,11 +780,10 @@ def generate_region_table_across_samples(parameters_path):
         # Find brain regions corresponding to each voxel in the ROI
         regions = []
         for index in np.argwhere(roi_array == roi_num):
-            annotation_label = annotation_data[tuple(index)]
+            annotation_label = annotation[tuple(index)]
             regions.append(annotation_label)
 
         roi_regions.append(regions)
-    # Create DataFrame
     region_samples_dataframe = pd.DataFrame(
         {
             "ROI Number": roi_numbers,
