@@ -687,7 +687,10 @@ def group_ROI_coordinates(parameters_path):
                         z = pixcoord[2][k, l]
                         if x != 0 and y != 0 and z != 0:
                             empty_frame[int(x), int(y), int(z)] = int(tube)
+    
+    remove_hemisphere_overlap(empty_frame)
     np.save(f"{lcm_directory}/ROI_3D.npy", empty_frame)
+    
     print("finished, sending final job")
     generate_region_table_across_samples(
         parameters_path=parameters_path,
@@ -695,6 +698,55 @@ def group_ROI_coordinates(parameters_path):
         slurm_folder="/camp/home/turnerb/slurm_logs",
     )
 
+
+def remove_hemisphere_overlap(roi_array):
+    """
+    Function to correct error in registration where separation of cortical hemispheres leads to error where Visualign non-linear
+    registation fails and ROIs on border of one hemisphere have some points in other hemisphere
+    Args:
+        roi_array (numpy array): 3D ROI array from group_ROI_coordinates
+    Returns:
+        corrected ROI array
+    """
+    # determine the midpoint of the array along the z-axis (corresponds to the axis connecting hemipshperes)
+    x_midpoint = roi_array.shape[2] // 2
+
+    # select ROIs in each hemisphere
+    left_hemisphere_roi = roi_array[:, :, :x_midpoint]
+    right_hemisphere_roi = roi_array[:, :, x_midpoint:]
+
+    # identify ROIs that are predominantly in one hemisphere
+    left_hemisphere_labels = np.unique(left_hemisphere_roi)
+    right_hemisphere_labels = np.unique(right_hemisphere_roi)
+
+    majority_left_labels = [
+        label
+        for label in left_hemisphere_labels
+        if np.sum(left_hemisphere_roi == label) > np.sum(right_hemisphere_roi == label)
+    ]
+    majority_right_labels = [
+        label
+        for label in right_hemisphere_labels
+        if np.sum(right_hemisphere_roi == label) > np.sum(left_hemisphere_roi == label)
+    ]
+
+    # remove those crossing hemispheres where the majority of the ROI is in another hemisphere
+    left_mask = np.isin(left_hemisphere_roi, majority_left_labels)
+    left_hemisphere_roi[~left_mask] = 0
+    right_mask = np.isin(right_hemisphere_roi, majority_right_labels)
+    right_hemisphere_roi[~right_mask] = 0
+
+    # Combine the hemispheres back into a single array
+    roi_array_processed = np.concatenate(
+        (left_hemisphere_roi, right_hemisphere_roi), axis=2
+    )
+
+    return roi_array_processed
+
+
+# Example usage:
+# Assuming roi_array is your 3D numpy array containing the ROIs
+processed_roi_array = remove_hemisphere_overlap(ROI_3D)
 
 @slurm_it(
     conda_env="MAPseq_processing",
