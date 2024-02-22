@@ -17,7 +17,7 @@ Registered input from VisuAlign is in the form of json file with o, u, v 3d vect
 N.B. Make sure to update lcm registration parameters in parameters yaml file in Sequencing folder.
 
 **lcm_registration function pipeline:**
-
+```
 convert_images
     |
     v
@@ -31,7 +31,7 @@ generate_region_table_across_samples -> get_acronymn
     |
     v
    END
-
+```
 **Pre-process sequencing data**
 Make sure to update the parameters.yml file in preprocessing_sequencing folder. A copy is then saved into the project folder, and you then update that one from then on.
 All the functions for preprocessing are in the preprocess_sequences.py script. Initially run 'start_splitting.py' in the '/scripts' folder, and each of the functions will run sequentially up to the point where you need to manually adjust parameters for UMI count cut-off and template switching cut-off. At this point, run the notebook in '/preprocessing_sequencing/notebooks/determine_UMI_cutoff_and_template_switching_thresholds.ipynb' to visualise UMI count distribution etc., adjust parameters, and run the next section to finish preprocessing.
