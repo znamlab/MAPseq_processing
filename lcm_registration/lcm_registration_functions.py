@@ -321,6 +321,8 @@ def get_euclidean_distance(parameters_path):
     job_list = ":".join(map(str, job_list))
     lrf.group_ROI_coordinates(
         parameters_path=parameters_path,
+        resolution=10,
+        run_next="yes",
         use_slurm=True,
         slurm_folder="/camp/home/turnerb/slurm_logs",
         job_dependency=job_list,
@@ -616,11 +618,13 @@ def get_acronymn(lcm_dir):
     module_list=None,
     slurm_options=dict(ntasks=1, time="24:00:00", mem="350G", partition="hmem"),
 )
-def group_ROI_coordinates(parameters_path):
+def group_ROI_coordinates(parameters_path, resolution, run_next):
     """
     Function to take a template of allen atlas, then put all the roi's in appropriate coordinate positions, numbered by the sample number.
     Args:
         lcm_directory (str): path to where lcm directory is
+        resolution (int): 10 or 25 um depending on what resolution you want your 3D numpy array
+        run_next(str): 'yes' or 'no', whether you want to run the next functions or not
     Returns:
         None
     """
@@ -629,9 +633,12 @@ def group_ROI_coordinates(parameters_path):
     add_z = get_z_value(
         parameters_path=parameters_path, euclidean=parameters["euclidean"]
     )
-    empty_frame = np.zeros(
-        (1320, 800, 1140)
-    )  # this is the shape of the average template 10um ccf
+    if resolution == 10:
+        empty_frame = np.zeros(
+            (1320, 800, 1140)
+        )  # this is the shape of the average template 10um ccf
+    elif resolution == 25:
+        empty_frame = np.zeros((528, 320, 456))
     ROI_path = pathlib.Path(lcm_directory) / "rois"
     reg_dir = pathlib.Path(lcm_directory) / "allenccf/allen_ccf_coord"
     s = parameters["s"]
@@ -644,7 +651,7 @@ def group_ROI_coordinates(parameters_path):
         region = ROI_path / ROI_to_look
         if ROI_to_look.startswith("s0") or ROI_to_look.startswith("S0"):
             slicename = region.stem[1:4]
-            tube = region.stem[5 : len(region.stem)].split("TUBE", 1)[1]
+            tube = int(region.stem[5 : len(region.stem)].split("TUBE", 1)[1])
             # some of the roi's are pooled due to missing lcm images that are too hard to determine, these are specified in parameters file. We group these into one sample
             for tube_to_group in parameters["rois_to_combine"]:
                 if tube in parameters["rois_to_combine"][tube_to_group]:
@@ -666,14 +673,14 @@ def group_ROI_coordinates(parameters_path):
             for i, axis in enumerate(
                 [allencoord_roixa, allencoord_roiya, allencoord_roiza]
             ):
-                pixel = np.array(np.round(axis / 10), dtype=int)
+                pixel = np.array(np.round(axis / resolution), dtype=int)
                 pixel[pixel < 0] = 0
                 pixel[pixel >= empty_frame.shape[i]] = 0
                 pixcoord.append(pixel)
             new_coord = np.zeros(pixcoord[0].shape)
             z_add = 0
 
-            for stack in range(int(np.round(z_to_add / 10))):
+            for stack in range(int(np.round(z_to_add / resolution))):
                 for i in range(pixcoord[0].shape[0]):
                     for j in range(pixcoord[0].shape[1]):
                         if pixcoord[0][i, j] != 0:
@@ -688,14 +695,16 @@ def group_ROI_coordinates(parameters_path):
                             empty_frame[int(x), int(y), int(z)] = int(tube)
 
     remove_hemisphere_overlap(empty_frame)
-    np.save(f"{lcm_directory}/ROI_3D.npy", empty_frame)
+    np.save(f"{lcm_directory}/ROI_3D_{resolution}.npy", empty_frame)
 
-    print("finished, sending final job")
-    generate_region_table_across_samples(
-        parameters_path=parameters_path,
-        use_slurm=True,
-        slurm_folder="/camp/home/turnerb/slurm_logs",
-    )
+    print("finished")
+    if run_next == "yes":
+        print("finished, sending final job")
+        generate_region_table_across_samples(
+            parameters_path=parameters_path,
+            use_slurm=True,
+            slurm_folder="/camp/home/turnerb/slurm_logs",
+        )
 
 
 def remove_hemisphere_overlap(roi_array):
