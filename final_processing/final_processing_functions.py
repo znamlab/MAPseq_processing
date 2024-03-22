@@ -4,56 +4,47 @@ from znamutils import slurm_it
 import pandas as pd
 from final_processing import final_processing_functions as fpf
 import numpy as np
+import nrrd
+from sklearn.gaussian_process import GaussianProcessRegressor
+from sklearn.gaussian_process.kernels import RBF, WhiteKernel, Matern
+import pathlib
 
-def find_adjacent_samples(ROI_array, sample_list):
+def find_adjacent_samples(ROI_array, samples_to_look):
     """
-    Function to find adjacent samples surrounding cubelets within 50um distance of max (N.B. you might have to change this since it only extends the maximum coordinates, and if not two cubes it does not detect)
+    Function to find adjacent samples surrounding cubelets within 25um distance of max
     Args:
         ROI_array: 3D numpy array in 25um resolution
-        sample_list: list of samples you want to find adjacent samples for
+        samples_to_look: list of samples you want to find adjacent samples for
     Returns:
         Dictionary containing adjacent samples for each sample
     """
+    voxels_to_extend = 1 #with 25um resolution, you're scanning 25um either end
     adjacent_dict = {}
-    def get_coordinate_bounds(coordinates):
-        bounds = []
-        for num in range(3):
-            min_val = min(coordinates, key=lambda x: x[num])[num]
-            max_val = max(coordinates, key=lambda x: x[num])[num]
-            bounds.append((min_val, max_val))
-        return bounds
-    def adjust_coordinates(coordinates, axis, range_axis): #adjust coordinates to +/- 50um the min and max coordinates
-        if axis == 0:
-            min_coord_adj = [[coord[0]-2, coord[1], coord[2]] for coord in [coord for coord in coordinates if coord[0] == range_axis[0]]]
-            max_coord_adj = [[coord[0]+2, coord[1], coord[2]] for coord in [coord for coord in coordinates if coord[0] == range_axis[1]]]
-        if axis == 1:
-            min_coord_adj = [[coord[0], coord[1]-2, coord[2]] for coord in [coord for coord in coordinates if coord[1] == range_axis[0]]]
-            max_coord_adj = [[coord[0], coord[1]+2, coord[2]] for coord in [coord for coord in coordinates if coord[1] == range_axis[1]]]
-        if axis == 2:
-            min_coord_adj = [[coord[0], coord[1], coord[2]-2] for coord in [coord for coord in coordinates if coord[2] == range_axis[0]]]
-            max_coord_adj = [[coord[0], coord[1], coord[2]+2] for coord in [coord for coord in coordinates if coord[2] == range_axis[1]]]
-        
-        min_coord_adj.extend(max_coord_adj)
-        return min_coord_adj
-
-    def get_adjacent_samples(coordinates, array):
+    for ROI_sample in samples_to_look:
+        coordinates = np.argwhere(ROI_array == ROI_sample)
         sample_list = []
         for coord in coordinates:
-            sample_num = array[coord[0], coord[1], coord[2]]
-            if sample_num != 0:
+            #for each coordinate in ROI extend and subtract in each axis to find samples in close to the sample you're interested in
+            sample_num = ROI_array[coord[0]+ voxels_to_extend, coord[1], coord[2]]
+            if sample_num != 0 and sample_num != ROI_sample:
                 sample_list.append(sample_num)
-        return sample_list
-
-    for ROI_sample in sample_list:
-        coordinates = np.argwhere(ROI_array == ROI_sample)
-        coord_to_scan = []
-        for i, range_axis in enumerate(get_coordinate_bounds(coordinates)):
-            coord_from_axis = adjust_coordinates(coordinates=coordinates, axis=i, range_axis=range_axis)
-            coord_to_scan.extend(coord_from_axis)
-        all_adjacent_samples =get_adjacent_samples(coord_to_scan, ROI_array)
-        adjacent_dict[ROI_sample] = np.unique(all_adjacent_samples)
+            sample_num = ROI_array[coord[0]- voxels_to_extend, coord[1], coord[2]]
+            if sample_num != 0 and sample_num != ROI_sample:
+                sample_list.append(sample_num)    
+            sample_num = ROI_array[coord[0], coord[1]+ voxels_to_extend, coord[2]]
+            if sample_num != 0 and sample_num != ROI_sample:
+                sample_list.append(sample_num)
+            sample_num = ROI_array[coord[0], coord[1]- voxels_to_extend, coord[2]]
+            if sample_num != 0 and sample_num != ROI_sample:
+                sample_list.append(sample_num)
+            sample_num = ROI_array[coord[0], coord[1], coord[2]+ voxels_to_extend]
+            if sample_num != 0 and sample_num != ROI_sample:
+                sample_list.append(sample_num)
+            sample_num = ROI_array[coord[0], coord[1], coord[2]- voxels_to_extend]
+            if sample_num != 0 and sample_num != ROI_sample:
+                sample_list.append(sample_num) 
+        adjacent_dict[ROI_sample] = np.unique(sample_list)
     return adjacent_dict
-    
         
 def rename_tubes(barcode_table, parameters_path):
     """
@@ -189,3 +180,153 @@ def get_main_region(sample_vol, parameters_path):
         sample_vol_and_regions_table.loc[index, 'main'] = sum_values.iloc[0].name
         sample_vol_and_regions_table.loc[index, 'main_fraction'] = sum_values.iloc[0].Fraction
     sample_vol_and_regions_table.to_pickle(sample_vol)
+
+  
+@slurm_it(
+conda_env="MAPseq_processing",
+module_list=None,
+slurm_options=dict(ntasks=1, time="48:00:00", mem="350G", partition="hmem"),
+)
+def calculate_strength_GP_regression(parameters_path):
+    """Function to take barcode matrix, and with the assumption that single neuron projection patterns are spatially smooth, use gaussian process regression to 
+    map projection strengh across different areas. N.B. you need to have a 2D ROI flatmap npy saved. Since this requires python 3.9, and different environment, 
+    Run from notebook 'create_2D_cortical_flatmap' with MAPseq_processing_py39 environment.
+    Args:
+        parameters_path(str): path to where parameters file is
+    
+    Returns:
+        None
+    """
+    parameters = ps.load_parameters(directory=parameters_path)
+    mouse = parameters['MOUSE']
+    sequencing_directory = pathlib.Path(''.join([parameters['PROCESSED_DIR'], '/', parameters['PROJECT'], '/', parameters['MOUSE'], '/Sequencing']))
+    
+    barcodes_across_sample = pd.read_pickle(sequencing_directory/"A1_barcodes.pkl" #this has source samples removed
+    )
+    lcm_directory = parameters['lcm_directory']
+    ROI_2D = np.load(f'{lcm_directory}/cortical_flatmap.npy')
+            # remove tubes in ROI flatmap that aren't in normalised barcode path
+       
+    cortical_samples = parameters['cortical_samples']
+    cortical_samples = np.array(cortical_samples)
+    cortical_samples = cortical_samples[np.isin(cortical_samples, np.unique(ROI_2D))]
+    #since we've removed the source sites, we also might want cortical samples that are source sites removed 
+    cortical_samples = [i for i in cortical_samples if i in barcodes_across_sample.columns]
+    barcodes_across_sample = barcodes_across_sample[barcodes_across_sample[cortical_samples].astype(bool).sum(axis=1)>1]
+    to_process = barcodes_across_sample.index
+    chunk_size = 50
+    splits =np.array_split(to_process, len(to_process) // chunk_size)
+    job_ids = []
+    for i in range(len(splits)):
+        job_id = calculate_strength_GP_regression_chunk(
+                    parameters_path=parameters_path,
+                    chunk_indices=list(splits[i]), num=i,
+                    use_slurm=True,
+                    scripts_name=f"GP_reg_chunk_{i}_{mouse}",
+                    slurm_folder=parameters["SLURM_DIR"],
+                )
+        job_ids.append(job_id)
+    job_ids = ",".join(map(str, job_ids))
+    collate_chunks(
+        parameters_path=parameters_path,
+        use_slurm=True,
+        scripts_name=f"collate_{mouse}",
+        slurm_folder=parameters["SLURM_DIR"],
+        job_dependency=job_ids,
+    )
+
+@slurm_it(
+conda_env="MAPseq_processing",
+module_list=None,
+slurm_options=dict(ntasks=1, time="6:00:00", mem="20G", partition="cpu"),
+)
+def calculate_strength_GP_regression_chunk(parameters_path, chunk_indices, num):
+    """
+    Function to process individual chunks from calculate GP regression function
+    """
+    parameters = ps.load_parameters(directory=parameters_path)
+    lcm_directory = parameters['lcm_directory']
+    mouse = parameters['MOUSE']
+    sequencing_directory = pathlib.Path(''.join([parameters['PROCESSED_DIR'], '/', parameters['PROJECT'], '/', parameters['MOUSE'], '/Sequencing']))
+    ROI_2D = np.load(f'{lcm_directory}/cortical_flatmap.npy')
+        # remove tubes in ROI flatmap that aren't in normalised barcode path
+    cortical_samples = parameters['cortical_samples']
+    cortical_samples = np.array(cortical_samples)
+    cortical_samples = cortical_samples[np.isin(cortical_samples, np.unique(ROI_2D))]
+    centroids = []
+    for sample in cortical_samples:
+        centroids.append(np.argwhere(ROI_2D == sample).mean(axis=0))
+    centroids = np.stack(centroids) 
+
+    temp_folder = pathlib.Path(f'{parameters_path}/temp').mkdir(parents=True, exist_ok=True)
+    barcodes_across_sample = pd.read_pickle(sequencing_directory/"A1_barcodes.pkl" #this has source samples removed
+        )
+    barcodes_across_sample = barcodes_across_sample[barcodes_across_sample.index.isin(chunk_indices)]
+    sample_matrix = ROI_2D.T
+    tubes = np.arange(
+        np.min(barcodes_across_sample.columns), np.max(barcodes_across_sample.columns), 1
+    )
+    tubes_not_in = [i for i in tubes if i not in barcodes_across_sample.columns.to_list()]
+    for x in tubes_not_in:
+        ROI_2D[ROI_2D == x] = 0
+    barcode_matrix = np.zeros(
+    (len(barcodes_across_sample), max(barcodes_across_sample.columns.astype(int)) + 1)
+    )
+    for column in barcodes_across_sample:
+        barcode_matrix[:, int(column)] = barcodes_across_sample[column].to_numpy()
+    labels_df =  pd.read_csv(
+                "/camp/lab/znamenskiyp/home/shared/projects/turnerb_MAPseq/A1_MAPseq/FIAA32.6a/LCM_registration/labelDescription_ITKSNAPColor.txt",
+                header=None,
+                sep="\s+",
+                index_col=0
+            )
+    labels_df.columns = ["r", "g", "b", "x0", "x1", "x2", "acronym"]
+
+    annotation_data = nrrd.read("/camp/lab/znamenskiyp/home/shared/projects/turnerb_MAPseq/A1_MAPseq/FIAA32.6a/LCM_registration/flatmap_butterfly.nrrd")
+    allen_anno = np.array(annotation_data)
+    annotation = allen_anno[0]
+    flipped = np.flip(annotation.T, 1)
+    combined = np.hstack((annotation.T[:, :1176],flipped[:, 184:]))
+
+    areas_in_flatmap = [labels_df.loc[index, 'acronym'] for index in labels_df.index if index in combined]
+    all_barcode_projections = pd.DataFrame(columns =areas_in_flatmap )
+    kernel = WhiteKernel() + Matern(length_scale=10, length_scale_bounds=(20, 60))
+    for index_to_look_neuron in range(len(barcode_matrix)):
+        #kernel = WhiteKernel() + Matern(length_scale=10, length_scale_bounds=(50, 150))
+        y = barcode_matrix[index_to_look_neuron, cortical_samples]
+        #soma_idx = np.argmax(y) somamax is already removed from A1 dataset, therefore not necessary to take out
+        gpr = GaussianProcessRegressor(kernel=kernel, random_state=0, n_restarts_optimizer=5).fit(centroids, y)
+        ycoor, xcoor = np.mgrid[0:sample_matrix.shape[0], 0:sample_matrix.shape[1]]
+        X = np.concatenate((xcoor.reshape((-1, 1)), ycoor.reshape((-1, 1))), axis=1)
+        pred = gpr.predict(X)
+        area_dict={}
+        barcode_2D = np.reshape(pred, sample_matrix.shape)/pred.sum()
+        for area in areas_in_flatmap:
+            index_to_look = labels_df[labels_df['acronym']==area].index.to_list()
+            mask = (combined == index_to_look)
+            selected_values = barcode_2D[mask]
+            average_counts = np.mean(selected_values)
+            if average_counts<0:
+                average_counts = 0
+            area_dict[area] = average_counts
+        all_barcode_projections= all_barcode_projections.append(area_dict, ignore_index=True)
+    all_barcode_projections.to_pickle(f'{str(temp_folder)}/GS_regression_projections_{mouse}_{num}.pkl')
+
+@slurm_it(
+conda_env="MAPseq_processing",
+module_list=None,
+slurm_options=dict(ntasks=1, time="6:00:00", mem="8G", partition="cpu"),
+)    
+def collate_chunks(parameters_path):
+    """
+    Function to collate all the tables from GP regression and save combined
+    """
+    parameters = ps.load_parameters(directory=parameters_path)
+    mouse = parameters['MOUSE']
+    temp_folder = pathlib.Path(f'{parameters_path}/temp')
+    all_files = temp_folder.glob(f"GS_regression_projections_{mouse}_*.pkl")
+    all_tables = []
+    for f in all_files:
+        all_tables.append(pd.read_pickle(f))
+    all_tables = pd.concat(all_tables)
+    all_tables.to_pickle(f'{parameters_path}/GS_regression_projections_collated.pkl')
