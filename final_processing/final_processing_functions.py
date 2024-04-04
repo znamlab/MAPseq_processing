@@ -229,12 +229,13 @@ def get_main_region(sample_vol, parameters_path):
     module_list=None,
     slurm_options=dict(ntasks=1, time="48:00:00", mem="350G", partition="hmem"),
 )
-def calculate_strength_GP_regression(parameters_path):
+def calculate_strength_GP_regression(parameters_path, shuffle):
     """Function to take barcode matrix, and with the assumption that single neuron projection patterns are spatially smooth, use gaussian process regression to
     map projection strengh across different areas. N.B. you need to have a 2D ROI flatmap npy saved. Since this requires python 3.9, and different environment,
     Run from notebook 'create_2D_cortical_flatmap' with MAPseq_processing_py39 environment.
     Args:
         parameters_path(str): path to where parameters file is
+        shuffle (bool): whether to shuffle columns in barcode table or not as a negative control
 
     Returns:
         None
@@ -257,6 +258,11 @@ def calculate_strength_GP_regression(parameters_path):
     barcodes_across_sample = pd.read_pickle(
         sequencing_directory / "A1_barcodes.pkl"  # this has source samples removed
     )
+    if shuffle:
+        barcodes = send_to_shuffle(barcodes=barcodes_across_sample.to_numpy())
+        barcodes_across_sample = pd.DataFrame(data=barcodes, columns=barcodes_across_sample.columns)
+        barcodes_across_sample.to_pickle(sequencing_directory / 'A1_barcodes_shuffled.pkl')
+    
     lcm_directory = parameters["lcm_directory"]
     ROI_2D = np.load(f"{lcm_directory}/cortical_flatmap.npy")
     # remove tubes in ROI flatmap that aren't in normalised barcode path
@@ -270,16 +276,18 @@ def calculate_strength_GP_regression(parameters_path):
     ]
     barcodes_across_sample = barcodes_across_sample[
         barcodes_across_sample[cortical_samples].astype(bool).sum(axis=1) > 1
-    ]
+    ].reset_index(drop=True)
     to_process = barcodes_across_sample.index
     chunk_size = 25
     splits = np.array_split(to_process, len(to_process) // chunk_size)
     pathlib.Path(f"{parameters_path}/temp").mkdir(parents=True, exist_ok=True)
+    if shuffle:
+        mouse = f'{mouse}_shuffled'
     job_ids = []
     for i in range(len(splits)):
         job_id = calculate_strength_GP_regression_chunk(
             parameters_path=parameters_path,
-            chunk_indices=list(splits[i]),
+            chunk_indices=list(splits[i]), shuffle=shuffle,
             num=i,
             use_slurm=True,
             scripts_name=f"GP_reg_chunk_{i}_{mouse}",
@@ -288,8 +296,8 @@ def calculate_strength_GP_regression(parameters_path):
         job_ids.append(job_id)
     job_ids = ",".join(map(str, job_ids))
     collate_chunks(
-        parameters_path=parameters_path,
-        use_slurm=True,
+        parameters_path=parameters_path, shuffle=shuffle,
+        use_slurm=True, 
         scripts_name=f"collate_{mouse}",
         slurm_folder=parameters["SLURM_DIR"],
         job_dependency=job_ids,
@@ -301,7 +309,7 @@ def calculate_strength_GP_regression(parameters_path):
     module_list=None,
     slurm_options=dict(ntasks=1, time="6:00:00", mem="20G", partition="ncpu"),
 )
-def calculate_strength_GP_regression_chunk(parameters_path, chunk_indices, num):
+def calculate_strength_GP_regression_chunk(parameters_path, chunk_indices, shuffle, num):
     """
     Function to process individual chunks from calculate GP regression function
     """
@@ -320,24 +328,43 @@ def calculate_strength_GP_regression_chunk(parameters_path, chunk_indices, num):
             ]
         )
     )
+    if shuffle == False:
+        barcodes_across_sample = pd.read_pickle(
+        sequencing_directory / "A1_barcodes.pkl"  # this has source samples removed
+    )
+    elif shuffle == True:
+        barcodes_across_sample = pd.read_pickle(
+        sequencing_directory / "A1_barcodes_shuffled.pkl"  
+    )
+    
+    
     ROI_2D = np.load(f"{lcm_directory}/cortical_flatmap.npy")
     # remove tubes in ROI flatmap that aren't in normalised barcode path
     cortical_samples = parameters["cortical_samples"]
     cortical_samples = np.array(cortical_samples)
     cortical_samples = cortical_samples[np.isin(cortical_samples, np.unique(ROI_2D))]
+    # since we've removed the source sites, we also might want cortical samples that are source sites removed
+    cortical_samples = [
+        i for i in cortical_samples if i in barcodes_across_sample.columns
+    ]
     centroids = []
     for sample in cortical_samples:
         centroids.append(np.argwhere(ROI_2D == sample).mean(axis=0))
+    
     centroids = np.stack(centroids)
 
     temp_folder = f"{parameters_path}/temp"
-    barcodes_across_sample = pd.read_pickle(
-        sequencing_directory / "A1_barcodes.pkl"  # this has source samples removed
-    )
+    
+    barcodes_across_sample = barcodes_across_sample[
+        barcodes_across_sample[cortical_samples].astype(bool).sum(axis=1) > 1
+    ].reset_index(drop=True)
+    
     barcodes_across_sample = barcodes_across_sample[
         barcodes_across_sample.index.isin(chunk_indices)
     ]
     sample_matrix = ROI_2D.T
+   
+   
     tubes = np.arange(
         np.min(barcodes_across_sample.columns),
         np.max(barcodes_across_sample.columns),
@@ -380,7 +407,7 @@ def calculate_strength_GP_regression_chunk(parameters_path, chunk_indices, num):
     contra_areas = [f"Contra-{x}" for x in areas_in_flatmap]
     areas_in_flatmap.extend(contra_areas)
     all_barcode_projections = pd.DataFrame(columns=areas_in_flatmap)
-    kernel = WhiteKernel() + Matern(length_scale=10, length_scale_bounds=(20, 60))
+    kernel = WhiteKernel() + Matern(length_scale=10, length_scale_bounds=(30, 100))
     for index_to_look_neuron in range(len(barcode_matrix)):
         # kernel = WhiteKernel() + Matern(length_scale=10, length_scale_bounds=(50, 150))
         y = barcode_matrix[index_to_look_neuron, cortical_samples]
@@ -408,33 +435,40 @@ def calculate_strength_GP_regression_chunk(parameters_path, chunk_indices, num):
             average_counts = np.mean(selected_values)
             if average_counts < 0:
                 average_counts = 0
-            area_dict[area] = average_counts
+            average_counts_per_um = average_counts/(np.sum(mask)*25)
+            area_dict[area] = average_counts_per_um
         all_barcode_projections = all_barcode_projections.append(
             area_dict, ignore_index=True
         )
+    if shuffle:
+        mouse = f'{mouse}_shuffled'
     all_barcode_projections.to_pickle(
-        f"{temp_folder}/GS_regression_projections_{mouse}_{num}.pkl"
+        f"{temp_folder}/GP_regression_projections_{mouse}_{num}.pkl"
     )
 
 
 @slurm_it(
     conda_env="MAPseq_processing",
     module_list=None,
-    slurm_options=dict(ntasks=1, time="6:00:00", mem="8G", partition="cpu"),
+    slurm_options=dict(ntasks=1, time="6:00:00", mem="8G", partition="ncpu"),
 )
-def collate_chunks(parameters_path):
+def collate_chunks(parameters_path, shuffle):
     """
     Function to collate all the tables from GP regression and save combined
     """
     parameters = ps.load_parameters(directory=parameters_path)
     mouse = parameters["MOUSE"]
     temp_folder = pathlib.Path(f"{parameters_path}/temp")
-    all_files = temp_folder.glob(f"GS_regression_projections_{mouse}_*.pkl")
+    name = 'GP_regression_projections_collated'
+    if shuffle:
+        mouse = f'{mouse}_shuffled'
+        name = f'{name}_shuffled'
+    all_files = temp_folder.glob(f"GP_regression_projections_{mouse}_*.pkl")
     all_tables = []
     for f in all_files:
         all_tables.append(pd.read_pickle(f))
     all_tables = pd.concat(all_tables)
-    all_tables.to_pickle(f"{parameters_path}/GS_regression_projections_collated.pkl")
+    all_tables.to_pickle(f"{parameters_path}/{name}.pkl")
 
 
 def homog_across_cubelet_cortical(parameters_path, cortical, shuffled):
