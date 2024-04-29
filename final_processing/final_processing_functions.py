@@ -14,7 +14,7 @@ import warnings
 import pickle
 import itertools
 from allensdk.core.mouse_connectivity_cache import MouseConnectivityCache
-
+import os
 
 
 def find_adjacent_samples(ROI_array, samples_to_look, parameters_path):
@@ -864,7 +864,7 @@ def get_shuffles(mice, temp_shuffle_folder, iteration, proj_folder):
                 ]
             )
         )
-        barcodes_across_sample = pd.read_pickle(sequencing_directory / "barcode_matrix_soma_thresholded_normalised_A1.pkl")
+        barcodes_across_sample = pd.read_pickle(sequencing_directory / "A1_barcodes_thresholded.pkl")
         lcm_directory = parameters["lcm_directory"]
         barcodes_across_sample = barcodes_across_sample[
             barcodes_across_sample.astype(bool).sum(axis=1) > 0
@@ -901,7 +901,8 @@ def get_shuffles(mice, temp_shuffle_folder, iteration, proj_folder):
         #now combine the shuffled datasets for both mice
     # shuffled_combined_cubelet_dict = {}
     # shuffled_combined_area_dict = {}
-    cols = ['VISli','VISpor', 'VISpl', 'VISl', 'VISp', 'VISal', 'VISam', 'VISpm', 'VISa', 'VISrl']
+    #cols = ['VISli','VISpor', 'VISpl', 'VISl', 'VISp', 'VISal', 'VISam', 'VISpm', 'VISa', 'VISrl']
+    cols = ['VISli','VISpor', 'VISpl', 'VISl', 'VISp', 'VISal', 'VISam', 'VISpm', 'VISa', 'VISrl', 'RSPv', 'RSPd', 'IC', 'SCs', 'STR', 'RSPagl', 'SCm', 'ACAd', 'ACAv', 'SSp', 'SSs', 'MOp', 'Contra', 'MGv', 'LP', 'LGd', 'LGv', 'AUDd', 'AUDv', 'HPF', 'ECT', 'PERI']
     #common_columns_cubelet = list(set(combined_dict_cubelet['FIAA45.6a'][0].columns).intersection(combined_dict_cubelet['FIAA45.6d'][0].columns))
     #common_columns_area = list(set(combined_dict_area['FIAA45.6a'][0].columns).intersection(combined_dict_area['FIAA45.6d'][0].columns))
     #all_common_columns = [x for x in common_columns_cubelet if x in common_columns_area] #might want to change this if there is any differences - I don't think there is, but I put just in case
@@ -916,6 +917,8 @@ def get_shuffles(mice, temp_shuffle_folder, iteration, proj_folder):
     neuron_numbers_area = pd.DataFrame(columns=cols)
     corr_cubelet = pd.DataFrame(columns=combinations)
     corr_area = pd.DataFrame(columns=combinations)
+    corr_cubelet_binary = pd.DataFrame(columns=combinations)
+    corr_area_binary = pd.DataFrame(columns=combinations)
     for i in range(num_shuffles):
         shuffled_combined_cubelet = pd.concat([combined_dict_cubelet['FIAA45.6a'][i][cols], combined_dict_cubelet['FIAA45.6d'][i][cols]], ignore_index=True)
         shuffled_combined_area = pd.concat([combined_dict_area['FIAA45.6a'][i][cols], combined_dict_area['FIAA45.6d'][i][cols]], ignore_index=True) 
@@ -926,6 +929,7 @@ def get_shuffles(mice, temp_shuffle_folder, iteration, proj_folder):
             dict_to_add = {}
             num_dict = {}
             pearson_corr_dict= {}
+            binary_corr_dict= {}
             for column in cols:
                 num_dict[column] = matrix[column].astype(bool).sum()
             for col_a, col_b  in itertools.combinations(cols, 2):
@@ -934,23 +938,27 @@ def get_shuffles(mice, temp_shuffle_folder, iteration, proj_folder):
                 prob_df["b"] = matrix[col_b].astype(bool)
                 prob_df["matching"] =prob_df.apply(lambda x: 1 if x['a'] and x['b'] else 0, axis=1)
                 dict_to_add[f'{col_a}, {col_b}'] = prob_df["matching"].sum()
-                pearson_corr_dict[f'{col_a}, {col_b}'] = matrix[col_a].corr(matrix[col_b])
-                
+                pearson_corr_dict[f'{col_a}, {col_b}'] = matrix[col_a].corr(matrix[col_b], method='spearman')
+                binary_corr_dict[f'{col_a}, {col_b}'] = matrix[col_a].astype(bool).corr(matrix[col_b].astype(bool), method='spearman')
             if which == 0:
                 probability_cubelet = pd.concat([probability_cubelet, pd.DataFrame(dict_to_add, index=[i])])
                 neuron_numbers_cubelet = pd.concat([neuron_numbers_cubelet, pd.DataFrame(num_dict, index=[i])])
                 corr_cubelet = pd.concat([corr_cubelet, pd.DataFrame(pearson_corr_dict, index=[i])])
+                corr_cubelet_binary = pd.concat([corr_cubelet_binary, pd.DataFrame(binary_corr_dict, index=[i])])
+                
             if which == 1:
                 probability_area = pd.concat([probability_area, pd.DataFrame(dict_to_add, index=[i])])
                 neuron_numbers_area = pd.concat([neuron_numbers_area, pd.DataFrame(num_dict, index=[i])])
                 corr_area = pd.concat([corr_area, pd.DataFrame(pearson_corr_dict, index=[i])])
-        
+                corr_area_binary = pd.concat([corr_area_binary, pd.DataFrame(binary_corr_dict, index=[i])])
     probability_cubelet.to_pickle(f'{temp_shuffle_folder}/shuffled_cubelet_2_comb_{iteration}.pkl')
     probability_area.to_pickle(f'{temp_shuffle_folder}/shuffled_area_2_comb_{iteration}.pkl')
     neuron_numbers_area.to_pickle(f'{temp_shuffle_folder}/shuffled__neuron_numbers_area_{iteration}.pkl')
     neuron_numbers_cubelet.to_pickle(f'{temp_shuffle_folder}/shuffled__neuron_numbers_cubelet_{iteration}.pkl')   
     corr_area.to_pickle(f'{temp_shuffle_folder}/shuffled_corr_area_{iteration}.pkl')   
-    corr_cubelet.to_pickle(f'{temp_shuffle_folder}/shuffled_corr_cubelet_{iteration}.pkl')   
+    corr_cubelet.to_pickle(f'{temp_shuffle_folder}/shuffled_corr_cubelet_{iteration}.pkl')  
+    corr_area_binary.to_pickle(f'{temp_shuffle_folder}/shuffled_corr_area_binary_{iteration}.pkl')   
+    corr_cubelet_binary.to_pickle(f'{temp_shuffle_folder}/shuffled_corr_cubelet_binary_{iteration}.pkl')   
         
         # for which, matrix in enumerate([shuffled_combined_cubelet, shuffled_combined_area]):
         #     cols = matrix.columns.to_list()
@@ -985,7 +993,7 @@ def collate_all_shuffles(temp_shuffle_folder):
     """
     Function to combine the shuffle population tables
     """
-    files_to_look = ['shuffled_cubelet_2_comb_', 'shuffled_area_2_comb_', 'shuffled__neuron_numbers_area_', 'shuffled__neuron_numbers_cubelet_', 'shuffled_corr_area_', 'shuffled_corr_cubelet_']
+    files_to_look = ['shuffled_cubelet_2_comb_', 'shuffled_area_2_comb_', 'shuffled__neuron_numbers_area_', 'shuffled__neuron_numbers_cubelet_', 'shuffled_corr_area_', 'shuffled_corr_cubelet_', 'shuffled_corr_cubelet_binary_', 'shuffled_corr_area_binary_']
     path_to_look = pathlib.Path(temp_shuffle_folder)
     new_folder = path_to_look.parent/'collated_shuffles'
     new_folder.mkdir(parents=True, exist_ok=True)
@@ -996,6 +1004,10 @@ def collate_all_shuffles(temp_shuffle_folder):
             all_tables.append(pd.read_pickle(f))
         all_tables = pd.concat(all_tables)
         all_tables.to_pickle(f"{str(new_folder)}/{file_start}_collated.pkl")
+        list_all = os.listdir(path_to_look)
+        for file_path in list_all:
+            if file_path.startswith(file_start):
+                os.remove(path_to_look/file_path)
 
         
 @slurm_it(
@@ -1094,4 +1106,232 @@ def get_three_shuffles(mice):
                 
     probability_cubelet.to_pickle('/camp/lab/znamenskiyp/home/shared/code/MAPseq_processing/shuffled_cubelet_3_comb.pkl')
     probability_area.to_pickle('/camp/lab/znamenskiyp/home/shared/code/MAPseq_processing/shuffled_area_3_comb.pkl')
+
+
+@slurm_it(
+    conda_env="MAPseq_processing",
+    module_list=None,
+    slurm_options=dict(ntasks=1, time="12:00:00", mem="16G", partition="ncpu"),
+)
+def get_anterior_posterior_shuffles(mice, temp_shuffle_folder, iteration, proj_folder):
+    """
+    Function to provide a list of 1000 shuffles of your datasets.
+    Args:
+        mice : list of mice
+    """
+    bg_atlas = BrainGlobeAtlas("allen_mouse_10um", check_latest=False)
+    AUDp_id =bg_atlas.structures['AUDp']['id']
+    mcc = MouseConnectivityCache(resolution=25)
+    rsp = mcc.get_reference_space()
+    AUDp_mask = rsp.make_structure_mask([AUDp_id], direct_only=False)
+    indices_AUDp = np.argwhere(AUDp_mask == 1)
+
+    #select anterior and posterior parts of A1
+    max_y = np.max(indices_AUDp[:, 0])
+    min_y = np.min(indices_AUDp[:, 0])
+    AP_midpoint_A1 = ((max_y - min_y) /2) + min_y
+    posterior_neurons = indices_AUDp[indices_AUDp[:, 0]>=AP_midpoint_A1]
+    anterior_neurons = indices_AUDp[indices_AUDp[:, 0]<AP_midpoint_A1]
+    #now select only the ipsiliateral side of where was injected
+    x_midpoint = AUDp_mask.shape[2] // 2
+    contra_mask = np.zeros_like(AUDp_mask, dtype=bool)
+    contra_mask[:, :, x_midpoint:] = 1
+
+    num_shuffles = 50
+    warnings.filterwarnings('ignore')
+    combined_dict_area_anterior = {}
+    combined_dict_cubelet_anterior = {}
+    combined_dict_area_posterior = {}
+    combined_dict_cubelet_posterior = {}
+    for num, mouse in enumerate(mice):
+        homog_across_cubelet = {}
+        homog_across_area = {}
+        
+        parameters_path = (
+        f"{proj_folder}/{mouse}/Sequencing")
+        parameters = ps.load_parameters(directory=parameters_path)
+        sequencing_directory = pathlib.Path(
+            "".join(
+                [
+                    parameters["PROCESSED_DIR"],
+                    "/",
+                    parameters["PROJECT"],
+                    "/",
+                    parameters["MOUSE"],
+                    "/Sequencing",
+                ]
+            )
+        )
+        barcodes = pd.read_pickle(sequencing_directory / "barcode_matrix_soma_thresholded_normalised.pkl")
+        lcm_directory = parameters["lcm_directory"]
+        
+        #split into anterior and posterior
+        ROI_3D = np.load(f"{lcm_directory}/ROI_3D_25.npy")
+        AP_samples = {}
+        AP_source_filtered = {}
+        all_AUDp_samples = np.unique(ROI_3D *  AUDp_mask * contra_mask)
+        all_AUDp_samples = [sample for sample in all_AUDp_samples if sample != 0]
+        for i, index in enumerate([anterior_neurons, posterior_neurons]):
+            mask = np.zeros_like(AUDp_mask, dtype=bool)
+            mask[tuple(zip(*index))] = True
+            names = ['anterior_neurons', 'posterior_neurons']
+            sample_list = np.unique(ROI_3D *  mask * contra_mask)
+            sample_list = [sample for sample in sample_list if sample != 0]
+            AP_samples[names[i]] = sample_list
+        for sample in AP_samples['anterior_neurons']: #check if some samples are in both anterior and posterior A1 source lists, and if so remove the one that is less frequent on one side
+            if sample in AP_samples['posterior_neurons']:
+                anterior_count = sum(ROI_3D[tuple(zip(*anterior_neurons))] == sample)
+                posterior_count = sum(ROI_3D[tuple(zip(*posterior_neurons))] == sample)
+                if anterior_count>posterior_count:
+                    AP_samples['posterior_neurons'].remove(sample)
+                if anterior_count<posterior_count:
+                    AP_samples['anterior_neurons'].remove(sample)
+        
     
+        for number, key in enumerate(AP_samples):
+            filtered_barcodes_source = barcodes[barcodes.idxmax(axis=1).isin(AP_samples[key])]
+            barcodes_across_sample = filtered_barcodes_source.drop(columns = all_AUDp_samples)
+            barcodes_across_sample = barcodes_across_sample[
+                barcodes_across_sample.astype(bool).sum(axis=1) > 0
+            ]
+            areas_only_grouped = get_area_volumes(
+                barcode_table_cols=barcodes_across_sample.columns, lcm_directory=lcm_directory
+            )
+            areas_matrix = areas_only_grouped.to_numpy()
+            total_frac = np.sum(areas_matrix, axis=1)
+            frac_matrix = areas_matrix / total_frac[:, np.newaxis]
+            weighted_frac_matrix = frac_matrix / areas_matrix.sum(axis=0)
+            barcodes_nump = barcodes_across_sample.to_numpy()
+            print(f'finished generating area matrix for {mouse} {key}', flush=True)
+            for i in range(num_shuffles):
+                barcodes_shuffled = send_to_shuffle(barcodes=barcodes_nump)
+                total_projection_strength = np.sum(barcodes_shuffled, axis=1)
+                #barcodes_shuffled = barcodes_shuffled.astype(int)/ total_projection_strength[:, np.newaxis]
+                bc_matrix = np.matmul(barcodes_shuffled, weighted_frac_matrix)
+                bc_matrix = pd.DataFrame(
+                    data=bc_matrix, columns=areas_only_grouped.columns.to_list()
+                )
+                bc_matrix = bc_matrix.loc[~(bc_matrix == 0).all(axis=1)]
+                homog_across_cubelet[i] = bc_matrix.fillna(0)
+                normalised_bc_matrix = barcodes_shuffled[
+                    total_projection_strength > 0, :
+                ]  # needed as already removed barcodes with no projections some nan values if shuffled and no projections in some barcodes
+
+                mdl = Lasso(fit_intercept=False, positive=True)
+                mdl.fit(areas_matrix, normalised_bc_matrix.T)
+                homog_across_area[i] = pd.DataFrame(data = mdl.coef_, columns=areas_only_grouped.columns)
+            
+            if key == 'anterior_neurons':
+                combined_dict_cubelet_anterior[mouse] = homog_across_cubelet
+                combined_dict_area_anterior[mouse] = homog_across_area
+            else:
+                combined_dict_cubelet_posterior[mouse] = homog_across_cubelet
+                combined_dict_area_posterior[mouse] = homog_across_area
+        
+    cols = ['VISli','VISpor', 'VISpl', 'VISl', 'VISp', 'VISal', 'VISam', 'VISpm', 'VISa', 'VISrl']
+    #common_columns_cubelet = list(set(combined_dict_cubelet['FIAA45.6a'][0].columns).intersection(combined_dict_cubelet['FIAA45.6d'][0].columns))
+    #common_columns_area = list(set(combined_dict_area['FIAA45.6a'][0].columns).intersection(combined_dict_area['FIAA45.6d'][0].columns))
+    #all_common_columns = [x for x in common_columns_cubelet if x in common_columns_area] #might want to change this if there is any differences - I don't think there is, but I put just in case
+    #common_columns_cubelet = ['VISli','VISpor', 'VISpl', 'VISl', 'VISp', 'VISal', 'VISam', 'VISpm', 'VISa', 'VISrl']
+    combinations = []
+    for col_a, col_b in itertools.combinations(cols, 2):
+        combination_to_add = f'{col_a}, {col_b}'
+        combinations.append(combination_to_add)
+    probability_cubelet_anterior = pd.DataFrame(columns= combinations)
+    probability_area_anterior = pd.DataFrame(columns= combinations)
+    neuron_numbers_cubelet_anterior = pd.DataFrame(columns=cols)
+    neuron_numbers_area_anterior = pd.DataFrame(columns=cols)
+    corr_cubelet_anterior = pd.DataFrame(columns=combinations)
+    corr_area_anterior = pd.DataFrame(columns=combinations)
+
+    probability_cubelet_posterior = pd.DataFrame(columns= combinations)
+    probability_area_posterior = pd.DataFrame(columns= combinations)
+    neuron_numbers_cubelet_posterior = pd.DataFrame(columns=cols)
+    neuron_numbers_area_posterior = pd.DataFrame(columns=cols)
+    corr_cubelet_posterior = pd.DataFrame(columns=combinations)
+    corr_area_posterior = pd.DataFrame(columns=combinations)
+
+
+    for i in range(num_shuffles):
+        shuffled_combined_cubelet_anterior = pd.concat([combined_dict_cubelet_anterior['FIAA45.6a'][i][cols], combined_dict_cubelet_anterior['FIAA45.6d'][i][cols]], ignore_index=True)
+        shuffled_combined_area_anterior = pd.concat([combined_dict_area_anterior['FIAA45.6a'][i][cols], combined_dict_area_anterior['FIAA45.6d'][i][cols]], ignore_index=True) 
+        shuffled_combined_cubelet_posterior = pd.concat([combined_dict_cubelet_posterior['FIAA45.6a'][i][cols], combined_dict_cubelet_posterior['FIAA45.6d'][i][cols]], ignore_index=True)
+        shuffled_combined_area_posterior = pd.concat([combined_dict_area_posterior['FIAA45.6a'][i][cols], combined_dict_area_posterior['FIAA45.6d'][i][cols]], ignore_index=True) 
+
+    # for i in range(num_shuffles):
+    #     shuffled_combined_cubelet = pd.concat([combined_dict_cubelet['FIAA45.6a'][i][cols], combined_dict_cubelet['FIAA45.6d'][i][cols]], ignore_index=True)
+    #     shuffled_combined_area = pd.concat([combined_dict_area['FIAA45.6a'][i][cols], combined_dict_area['FIAA45.6d'][i][cols]], ignore_index=True)
+        for which, matrix in enumerate([shuffled_combined_cubelet_anterior, shuffled_combined_area_anterior, shuffled_combined_cubelet_posterior, shuffled_combined_area_posterior]):
+            dict_to_add = {}
+            num_dict = {}
+            corr_dict= {}
+            for column in cols:
+                num_dict[column] = matrix[column].astype(bool).sum()
+            for col_a, col_b  in itertools.combinations(cols, 2):
+                prob_df = pd.DataFrame()
+                prob_df["a"] = matrix[col_a].astype(bool)
+                prob_df["b"] = matrix[col_b].astype(bool)
+                prob_df["matching"] =prob_df.apply(lambda x: 1 if x['a'] and x['b'] else 0, axis=1)
+                dict_to_add[f'{col_a}, {col_b}'] = prob_df["matching"].sum()
+                matrix= matrix[
+            matrix.astype(bool).sum(axis=1) > 0
+        ].reset_index(drop=True)
+                corr_dict[f'{col_a}, {col_b}'] = matrix[col_a].corr(matrix[col_b], method='spearman')
+                
+            if which == 0:
+                probability_cubelet_anterior = pd.concat([probability_cubelet_anterior, pd.DataFrame(dict_to_add, index=[i])])
+                neuron_numbers_cubelet_anterior = pd.concat([neuron_numbers_cubelet_anterior, pd.DataFrame(num_dict, index=[i])])
+                corr_cubelet_anterior = pd.concat([corr_cubelet_anterior, pd.DataFrame(corr_dict, index=[i])])
+            if which == 1:
+                probability_area_anterior = pd.concat([probability_area_anterior, pd.DataFrame(dict_to_add, index=[i])])
+                neuron_numbers_area_anterior = pd.concat([neuron_numbers_area_anterior, pd.DataFrame(num_dict, index=[i])])
+                corr_area_anterior = pd.concat([corr_area_anterior, pd.DataFrame(corr_dict, index=[i])])
+            if which == 2:
+                probability_cubelet_posterior = pd.concat([probability_cubelet_posterior, pd.DataFrame(dict_to_add, index=[i])])
+                neuron_numbers_cubelet_posterior = pd.concat([neuron_numbers_cubelet_posterior, pd.DataFrame(num_dict, index=[i])])
+                corr_cubelet_posterior = pd.concat([corr_cubelet_posterior, pd.DataFrame(corr_dict, index=[i])])
+            if which == 3:
+                probability_area_posterior = pd.concat([probability_area_posterior, pd.DataFrame(dict_to_add, index=[i])])
+                neuron_numbers_area_posterior = pd.concat([neuron_numbers_area_posterior, pd.DataFrame(num_dict, index=[i])])
+                corr_area_posterior = pd.concat([corr_area_posterior, pd.DataFrame(corr_dict, index=[i])])
+    temp_shuffle_folder = pathlib.Path(proj_folder)/'temp_shuffles'    
+    probability_cubelet_anterior.to_pickle(f'{temp_shuffle_folder}/shuffled_cubelet_2_comb_anterior_{iteration}.pkl')
+    probability_area_anterior.to_pickle(f'{temp_shuffle_folder}/shuffled_area_2_comb_anterior_{iteration}.pkl')
+    neuron_numbers_area_anterior.to_pickle(f'{temp_shuffle_folder}/shuffled_neuron_numbers_area_anterior_{iteration}.pkl')
+    neuron_numbers_cubelet_anterior.to_pickle(f'{temp_shuffle_folder}/shuffled_neuron_numbers_cubelet_anterior_{iteration}.pkl')   
+    corr_area_anterior.to_pickle(f'{temp_shuffle_folder}/shuffled_corr_area_anterior_{iteration}.pkl')   
+    corr_cubelet_anterior.to_pickle(f'{temp_shuffle_folder}/shuffled_corr_cubelet_anterior_{iteration}.pkl') 
+
+    probability_cubelet_posterior.to_pickle(f'{temp_shuffle_folder}/shuffled_cubelet_2_comb_posterior_{iteration}.pkl')
+    probability_area_posterior.to_pickle(f'{temp_shuffle_folder}/shuffled_area_2_comb_posterior_{iteration}.pkl')
+    neuron_numbers_area_posterior.to_pickle(f'{temp_shuffle_folder}/shuffled_neuron_numbers_area_posterior_{iteration}.pkl')
+    neuron_numbers_cubelet_posterior.to_pickle(f'{temp_shuffle_folder}/shuffled_neuron_numbers_cubelet_posterior_{iteration}.pkl')   
+    corr_area_posterior.to_pickle(f'{temp_shuffle_folder}/shuffled_corr_area_posterior_{iteration}.pkl')   
+    corr_cubelet_posterior.to_pickle(f'{temp_shuffle_folder}/shuffled_corr_cubelet_posterior_{iteration}.pkl')  
+    
+@slurm_it(
+    conda_env="MAPseq_processing",
+    module_list=None,
+    slurm_options=dict(ntasks=1, time="24:00:00", mem="100G", partition="ncpu"),
+)
+def collate_all_shuffles_ant_post(temp_shuffle_folder):
+    """
+    Function to combine the shuffle population tables
+    """
+    files_to_look = ['shuffled_cubelet_2_comb_anterior_', 'shuffled_area_2_comb_anterior_', 'shuffled_neuron_numbers_area_anterior_', 'shuffled_neuron_numbers_cubelet_anterior_', 'shuffled_corr_area_anterior_', 'shuffled_corr_cubelet_anterior_', 
+                     'shuffled_cubelet_2_comb_posterior_', 'shuffled_area_2_comb_posterior_', 'shuffled_neuron_numbers_area_posterior_', 'shuffled_neuron_numbers_cubelet_posterior_',
+                     'shuffled_corr_area_posterior_', 'shuffled_corr_cubelet_posterior_']
+    path_to_look = pathlib.Path(temp_shuffle_folder)
+    new_folder = path_to_look.parent/'collated_shuffles'
+    new_folder.mkdir(parents=True, exist_ok=True)
+    for file_start in files_to_look:    
+        all_files = path_to_look.glob(f"{file_start}*.pkl")
+        all_tables = []
+        for f in all_files:
+            all_tables.append(pd.read_pickle(f))
+        all_tables = pd.concat(all_tables)
+        all_tables.to_pickle(f"{str(new_folder)}/{file_start}collated.pkl")
+        list_all = os.listdir(path_to_look)
+        for file_path in list_all:
+            if file_path.startswith(file_start):
+                os.remove(path_to_look/file_path)
