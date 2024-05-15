@@ -81,7 +81,7 @@ def load_parameters(directory="root"):
 @slurm_it(
     conda_env="MAPseq_processing",
     module_list=None,
-    slurm_options=dict(ntasks=1, time="24:00:00", mem="350G", partition="hmem"),
+    slurm_options=dict(ntasks=1, time="24:00:00", mem="350G", partition="ncpu"),
 )
 def convert_images(parameters_path, overwrite="yes"):
     """
@@ -149,7 +149,10 @@ def convert_images(parameters_path, overwrite="yes"):
             section = row[: -len(".jpeg")]
         elif row.endswith(".jpg"):
             section = row[: -len(".jpg")]
-        filename = f"{str(saving_path)}/allen_ccf_converted_{section}"
+        if section.startswith('_'):
+            filename = f"{str(saving_path)}/allen_ccf_converted{section}"
+        else:
+            filename = f"{str(saving_path)}/allen_ccf_converted_{section}"
         if os.path.exists(f"{filename}.npy") and overwrite == "no":
             print(f"{filename} exists already, moving to next", flush=True)
         else:
@@ -272,7 +275,7 @@ def get_z_value(parameters_path, euclidean):
 @slurm_it(
     conda_env="MAPseq_processing",
     module_list=None,
-    slurm_options=dict(ntasks=1, time="24:00:00", mem="5G", partition="cpu"),
+    slurm_options=dict(ntasks=1, time="24:00:00", mem="5G", partition="ncpu"),
 )
 def get_euclidean_distance(parameters_path):
     """function to find z distance between slices
@@ -332,7 +335,7 @@ def get_euclidean_distance(parameters_path):
 @slurm_it(
     conda_env="MAPseq_processing",
     module_list=None,
-    slurm_options=dict(ntasks=1, time="72:00:00", mem="50G", partition="cpu"),
+    slurm_options=dict(ntasks=1, time="72:00:00", mem="50G", partition="ncpu"),
 )
 def calc_euclidean_distance(directory, slice):
     """function to find z distance between slices
@@ -379,244 +382,244 @@ def calc_euclidean_distance(directory, slice):
     print(f"finished {slice}", flush=True)
 
 
+# @slurm_it(
+#     conda_env="MAPseq_processing",
+#     module_list=None,
+#     slurm_options=dict(ntasks=1, time="48:00:00", mem="50G", partition="cpu"),
+# )
+# def get_roi_vol(parameters_path):
+#     """
+#     Function to calculate roi volumes.
+#     Args:
+#         parameters_path(str): path to where parameters yml file is
+#         lcm_dir (str): parent directory for lcm reg
+#         allen_anno_path (str): path to where allen annotation nrrd file is
+#         s: whether the start of the section 's{num}' is capitalised or not. e.g. s001 or S001
+#     Returns:
+#         None
+#     """
+#     # load annotation
+#     parameters = load_parameters(directory=parameters_path)
+#     allen_anno_path = parameters["allen_annotation_path"]
+#     s = parameters["s"]
+#     lcm_dir = pathlib.Path(parameters["lcm_directory"])
+#     add_z = get_z_value(
+#         parameters_path=parameters_path, euclidean=parameters["euclidean"]
+#     )
+#     allen_anno = nrrd.read(allen_anno_path)
+#     allen_anno = np.array(allen_anno)
+#     annotation = allen_anno[0]
+#     roi_path = pathlib.Path(lcm_dir) / "rois"
+#     ROI_vol = pd.DataFrame()
+#     if s == "upper":
+#         section_start = "S"
+#     else:
+#         section_start = "s"
+#     for region in os.listdir(roi_path):
+#         if region.startswith("S0") or region.startswith("s0"):
+#             slice_name = f"{section_start}{region[1:4]}"
+#             tube = region[5 : len(region)].split("TUBE", 1)[1]
+#             tube = tube[:-4]
+#             [xa, ya, za, one] = np.load(
+#                 lcm_dir
+#                 / f"allenccf/allen_ccf_coord/allen_ccf_converted_{slice_name}.npy"
+#             )
+#             roi = plt.imread(roi_path / f"{region}")
+#             allencoord_roiya = roi * ya
+#             allencoord_roiza = roi * za
+#             # use shoelace formula to define area of polygon given xy coordinates then calculate volume of each LCM roi
+#             calcz = allencoord_roiza[allencoord_roiza != 0]
+#             calcy = allencoord_roiya[allencoord_roiya != 0]
+#             area_roi = 0.5 * np.abs(
+#                 np.dot(calcz, np.roll(calcy, 1)) - np.dot(calcy, np.roll(calcz, 1))
+#             )
+#             z_to_add = add_z.loc[add_z["slice"] == slice_name, "amountz"].iloc[0]
+#             if (
+#                 z_to_add > 0
+#             ):  # the sign of z changes, depending which direction you're measuring it from
+#                 vol_roi = area_roi * z_to_add
+#             else:
+#                 vol_roi = area_roi * -z_to_add
+#             # convert the x, y, z coordinates to pixel
+#             pixcoord = []
+#             for i, axis in enumerate([xa, ya, za]):
+#                 pixel = np.array(np.round(axis / 25), dtype=int)
+#                 pixel[pixel < 0] = 0
+#                 pixel[pixel >= annotation.shape[i]] = 0
+#                 pixcoord.append(pixel)
+
+#             # use annotation.json to convert each pixel to region id
+
+#             registered_slice = np.zeros(xa.shape, dtype=annotation.dtype)
+#             a2 = annotation[
+#                 pixcoord[0].flatten(), pixcoord[1].flatten(), pixcoord[2].flatten()
+#             ].reshape(registered_slice.shape)
+#             ROI_anno = a2 * roi
+#             # iterate image by z slices, each additional z, annotate then add to list
+#             if z_to_add > 0:
+#                 slices = round(z_to_add / 25)
+#             else:
+#                 slices = -round(z_to_add / 25)
+#             for x in range(slices):
+#                 if x > 0:
+#                     newz = (
+#                         pixcoord[0] + x
+#                     )  # changed from plus to minus as going backwards
+#                     slice = annotation[
+#                         newz.flatten(), pixcoord[1].flatten(), pixcoord[2].flatten()
+#                     ].reshape(registered_slice.shape)
+#                     ROI_anno_add = slice * roi
+#                     ROI_anno = np.append(ROI_anno, ROI_anno_add)
+
+#             unique, counts = np.unique(ROI_anno, return_counts=True)
+#             region_vol = (counts / sum(counts)) * vol_roi
+#             ROI_vol = ROI_vol.append(
+#                 {
+#                     "slice": slice_name,
+#                     "tube": tube,
+#                     "z_added": z_to_add,
+#                     "vol (um3)": vol_roi,
+#                     "region_pix": ROI_anno,
+#                     "unique_regions": unique[1:],
+#                     "region_vol (um3)": region_vol[1:],
+#                 },
+#                 ignore_index=True,
+#             )
+#     ROI_vol.to_pickle(lcm_dir / "ROI_vol.pkl")
+
+
+# @slurm_it(
+#     conda_env="MAPseq_processing",
+#     module_list=None,
+#     slurm_options=dict(ntasks=1, time="24:00:00", mem="350G", partition="hmem"),
+# )
+# def combine_tubes(lcm_dir, ROI_vol_path):
+#     """
+#     Function to combine all the LCM roi's that have been combined in the same tube
+#     Args:
+#         lcm_dir (str): path to where parent lcm registration directory is
+#         ROI_vol_path: path to table output of 'get_roi_vol' function
+#     Returns:
+#         None
+#     """
+
+#     # combine volumes for LCM
+#     ROI_vol = pd.read_pickle(ROI_vol_path)
+#     final_pix = pd.DataFrame(columns=["tube", "combined_pix", "vol (um3)"], dtype=int)
+#     result = ROI_vol.groupby(["tube"]).agg(", ".join).reset_index()
+#     for row, tube in result["tube"].iteritems():
+#         newdf = ROI_vol[ROI_vol["tube"] == tube].reset_index()
+#         # for count, value in enumerate(newdf):
+#         for r, t in newdf["tube"].iteritems():
+#             if r == 0:
+#                 array = newdf.loc[r, "region_pix"]
+#                 vol = newdf.loc[r, "vol (um3)"]
+#             if r > 0:
+#                 nextarray = newdf.loc[r, "region_pix"]
+#                 vol = vol + newdf.loc[r, "vol (um3)"]
+#                 array = np.concatenate((array, nextarray), axis=None)
+#         final_pix = final_pix.append(
+#             {"tube": tube, "combined_pix": array, "vol (um3)": vol}, ignore_index=True
+#         )
+#     # generate list of unique id regions in all samples
+#     for r, tube in final_pix["tube"].iteritems():
+#         if r == 0:
+#             array = final_pix.loc[r, "combined_pix"]
+#         if r > 0:
+#             next_array = final_pix.loc[r, "combined_pix"]
+#             array = np.concatenate((array, next_array), axis=None)
+#     all_regions = np.unique(array)
+#     region_col = all_regions[all_regions != 0]
+#     # #calculate region volume in each tube, then create a heatmap of regions coloured according to region
+#     final_pix.tube = final_pix.tube.astype(float)
+#     finalpix1 = final_pix.sort_values("tube").reset_index()
+#     all_regions = np.unique(array)
+#     np.save(str(f"{lcm_dir}/region_col.npy"), region_col)
+#     finalpix1.to_pickle(f"{lcm_dir}/finalpix.pkl")
+#     # final_pix.to_pickle(lcm_dir/"finalpix.pkl")
+
+
+# def get_acronymn(lcm_dir):
+#     """
+#     Function to take annotations, and get the acronymn for each of the brain areas that the ROIs are in
+#     Args:
+#         lcm_dir (str): the directory where the lcm registration info is all in
+#     Returns:
+#         None
+#     """
+#     # now generate empty table for the acronymns of all areas based on allen ccf
+#     acronymncol = []
+#     for id in regioncol:
+#         if bg_atlas.structures[id]["acronym"][-1].isnumeric():
+#             newid = bg_atlas.structures[id]["structure_id_path"][
+#                 -2
+#             ]  # moving one level up the hierarchy if cortical layer
+#         elif (
+#             bg_atlas.structures[id]["acronym"][-2:] == "6a"
+#             or bg_atlas.structures[id]["acronym"][-2:] == "6b"
+#         ):
+#             newid = bg_atlas.structures[id]["structure_id_path"][
+#                 -2
+#             ]  # moving one level up the hierarchy if layer 6a/6b
+#         else:
+#             newid = id
+#         acronymn = bg_atlas.structures[newid]["acronym"]
+#         acronymncol.append(acronymn)
+#     acronymncol = np.unique(acronymncol).tolist()
+#     region_table = pd.DataFrame(columns=acronymncol, dtype=int)
+#     # need to generate reference table to convert id's into higher bit of hierarchy.
+
+#     for row, tube in finalpix1["tube"].iteritems():
+#         regions = finalpix1.loc[row, "combined_pix"]
+#         unique, counts = np.unique(regions, return_counts=True)
+#         region_area = (counts / sum(counts)) * (finalpix1.loc[row, "vol (um3)"])
+#         regions = unique[1:]
+#         region_area = region_area[1:]
+#         values = regions, region_area
+#         region_table.at[row, "sample"] = tube
+#         index = -1
+#         if regions.size != 0:
+#             for id in np.nditer(regions):
+#                 index += 1
+#                 if bg_atlas.structures[id]["acronym"][-1].isnumeric():
+#                     newid = bg_atlas.structures[id]["structure_id_path"][
+#                         -2
+#                     ]  # moving one level up the hierarchy if cortical layer
+#                 elif (
+#                     bg_atlas.structures[id]["acronym"][-2:] == "6a"
+#                     or bg_atlas.structures[id]["acronym"][-2:] == "6b"
+#                 ):
+#                     newid = bg_atlas.structures[id]["structure_id_path"][
+#                         -2
+#                     ]  # moving one level up the hierarchy if layer 6a/6b
+#                 else:
+#                     newid = id
+#                 acronym = bg_atlas.structures[newid]["acronym"]
+#                 region_table.at[row, acronym] = region_area[index]
+#     region_tab_contra = region_table
+#     # take areas in samples of contralateral hemisphere, and re-label as belonging to contra
+
+#     for i, row in region_table.iterrows():
+#         if region_table["sample"].iloc[i] in contra_samples:
+#             for col in region_table.columns:
+#                 if (
+#                     col != "sample"
+#                     and col.startswith("Contra") == False
+#                     and np.isnan(region_table[col].iloc[i]) == False
+#                 ):
+#                     newcol = "Contra-" + col
+#                     if newcol not in region_tab_contra:
+#                         region_tab_contra[newcol] = 0
+#                     region_tab_contra[newcol].iloc[i] = region_table[col].iloc[i]
+#                     region_tab_contra[col].iloc[i] = 0
+
+#     nozero = region_table.fillna(0)
+
+
 @slurm_it(
     conda_env="MAPseq_processing",
     module_list=None,
-    slurm_options=dict(ntasks=1, time="48:00:00", mem="50G", partition="cpu"),
-)
-def get_roi_vol(parameters_path):
-    """
-    Function to calculate roi volumes.
-    Args:
-        parameters_path(str): path to where parameters yml file is
-        lcm_dir (str): parent directory for lcm reg
-        allen_anno_path (str): path to where allen annotation nrrd file is
-        s: whether the start of the section 's{num}' is capitalised or not. e.g. s001 or S001
-    Returns:
-        None
-    """
-    # load annotation
-    parameters = load_parameters(directory=parameters_path)
-    allen_anno_path = parameters["allen_annotation_path"]
-    s = parameters["s"]
-    lcm_dir = pathlib.Path(parameters["lcm_directory"])
-    add_z = get_z_value(
-        parameters_path=parameters_path, euclidean=parameters["euclidean"]
-    )
-    allen_anno = nrrd.read(allen_anno_path)
-    allen_anno = np.array(allen_anno)
-    annotation = allen_anno[0]
-    roi_path = pathlib.Path(lcm_dir) / "rois"
-    ROI_vol = pd.DataFrame()
-    if s == "upper":
-        section_start = "S"
-    else:
-        section_start = "s"
-    for region in os.listdir(roi_path):
-        if region.startswith("S0") or region.startswith("s0"):
-            slice_name = f"{section_start}{region[1:4]}"
-            tube = region[5 : len(region)].split("TUBE", 1)[1]
-            tube = tube[:-4]
-            [xa, ya, za, one] = np.load(
-                lcm_dir
-                / f"allenccf/allen_ccf_coord/allen_ccf_converted_{slice_name}.npy"
-            )
-            roi = plt.imread(roi_path / f"{region}")
-            allencoord_roiya = roi * ya
-            allencoord_roiza = roi * za
-            # use shoelace formula to define area of polygon given xy coordinates then calculate volume of each LCM roi
-            calcz = allencoord_roiza[allencoord_roiza != 0]
-            calcy = allencoord_roiya[allencoord_roiya != 0]
-            area_roi = 0.5 * np.abs(
-                np.dot(calcz, np.roll(calcy, 1)) - np.dot(calcy, np.roll(calcz, 1))
-            )
-            z_to_add = add_z.loc[add_z["slice"] == slice_name, "amountz"].iloc[0]
-            if (
-                z_to_add > 0
-            ):  # the sign of z changes, depending which direction you're measuring it from
-                vol_roi = area_roi * z_to_add
-            else:
-                vol_roi = area_roi * -z_to_add
-            # convert the x, y, z coordinates to pixel
-            pixcoord = []
-            for i, axis in enumerate([xa, ya, za]):
-                pixel = np.array(np.round(axis / 25), dtype=int)
-                pixel[pixel < 0] = 0
-                pixel[pixel >= annotation.shape[i]] = 0
-                pixcoord.append(pixel)
-
-            # use annotation.json to convert each pixel to region id
-
-            registered_slice = np.zeros(xa.shape, dtype=annotation.dtype)
-            a2 = annotation[
-                pixcoord[0].flatten(), pixcoord[1].flatten(), pixcoord[2].flatten()
-            ].reshape(registered_slice.shape)
-            ROI_anno = a2 * roi
-            # iterate image by z slices, each additional z, annotate then add to list
-            if z_to_add > 0:
-                slices = round(z_to_add / 25)
-            else:
-                slices = -round(z_to_add / 25)
-            for x in range(slices):
-                if x > 0:
-                    newz = (
-                        pixcoord[0] + x
-                    )  # changed from plus to minus as going backwards
-                    slice = annotation[
-                        newz.flatten(), pixcoord[1].flatten(), pixcoord[2].flatten()
-                    ].reshape(registered_slice.shape)
-                    ROI_anno_add = slice * roi
-                    ROI_anno = np.append(ROI_anno, ROI_anno_add)
-
-            unique, counts = np.unique(ROI_anno, return_counts=True)
-            region_vol = (counts / sum(counts)) * vol_roi
-            ROI_vol = ROI_vol.append(
-                {
-                    "slice": slice_name,
-                    "tube": tube,
-                    "z_added": z_to_add,
-                    "vol (um3)": vol_roi,
-                    "region_pix": ROI_anno,
-                    "unique_regions": unique[1:],
-                    "region_vol (um3)": region_vol[1:],
-                },
-                ignore_index=True,
-            )
-    ROI_vol.to_pickle(lcm_dir / "ROI_vol.pkl")
-
-
-@slurm_it(
-    conda_env="MAPseq_processing",
-    module_list=None,
-    slurm_options=dict(ntasks=1, time="24:00:00", mem="350G", partition="hmem"),
-)
-def combine_tubes(lcm_dir, ROI_vol_path):
-    """
-    Function to combine all the LCM roi's that have been combined in the same tube
-    Args:
-        lcm_dir (str): path to where parent lcm registration directory is
-        ROI_vol_path: path to table output of 'get_roi_vol' function
-    Returns:
-        None
-    """
-
-    # combine volumes for LCM
-    ROI_vol = pd.read_pickle(ROI_vol_path)
-    final_pix = pd.DataFrame(columns=["tube", "combined_pix", "vol (um3)"], dtype=int)
-    result = ROI_vol.groupby(["tube"]).agg(", ".join).reset_index()
-    for row, tube in result["tube"].iteritems():
-        newdf = ROI_vol[ROI_vol["tube"] == tube].reset_index()
-        # for count, value in enumerate(newdf):
-        for r, t in newdf["tube"].iteritems():
-            if r == 0:
-                array = newdf.loc[r, "region_pix"]
-                vol = newdf.loc[r, "vol (um3)"]
-            if r > 0:
-                nextarray = newdf.loc[r, "region_pix"]
-                vol = vol + newdf.loc[r, "vol (um3)"]
-                array = np.concatenate((array, nextarray), axis=None)
-        final_pix = final_pix.append(
-            {"tube": tube, "combined_pix": array, "vol (um3)": vol}, ignore_index=True
-        )
-    # generate list of unique id regions in all samples
-    for r, tube in final_pix["tube"].iteritems():
-        if r == 0:
-            array = final_pix.loc[r, "combined_pix"]
-        if r > 0:
-            next_array = final_pix.loc[r, "combined_pix"]
-            array = np.concatenate((array, next_array), axis=None)
-    all_regions = np.unique(array)
-    region_col = all_regions[all_regions != 0]
-    # #calculate region volume in each tube, then create a heatmap of regions coloured according to region
-    final_pix.tube = final_pix.tube.astype(float)
-    finalpix1 = final_pix.sort_values("tube").reset_index()
-    all_regions = np.unique(array)
-    np.save(str(f"{lcm_dir}/region_col.npy"), region_col)
-    finalpix1.to_pickle(f"{lcm_dir}/finalpix.pkl")
-    # final_pix.to_pickle(lcm_dir/"finalpix.pkl")
-
-
-def get_acronymn(lcm_dir):
-    """
-    Function to take annotations, and get the acronymn for each of the brain areas that the ROIs are in
-    Args:
-        lcm_dir (str): the directory where the lcm registration info is all in
-    Returns:
-        None
-    """
-    # now generate empty table for the acronymns of all areas based on allen ccf
-    acronymncol = []
-    for id in regioncol:
-        if bg_atlas.structures[id]["acronym"][-1].isnumeric():
-            newid = bg_atlas.structures[id]["structure_id_path"][
-                -2
-            ]  # moving one level up the hierarchy if cortical layer
-        elif (
-            bg_atlas.structures[id]["acronym"][-2:] == "6a"
-            or bg_atlas.structures[id]["acronym"][-2:] == "6b"
-        ):
-            newid = bg_atlas.structures[id]["structure_id_path"][
-                -2
-            ]  # moving one level up the hierarchy if layer 6a/6b
-        else:
-            newid = id
-        acronymn = bg_atlas.structures[newid]["acronym"]
-        acronymncol.append(acronymn)
-    acronymncol = np.unique(acronymncol).tolist()
-    region_table = pd.DataFrame(columns=acronymncol, dtype=int)
-    # need to generate reference table to convert id's into higher bit of hierarchy.
-
-    for row, tube in finalpix1["tube"].iteritems():
-        regions = finalpix1.loc[row, "combined_pix"]
-        unique, counts = np.unique(regions, return_counts=True)
-        region_area = (counts / sum(counts)) * (finalpix1.loc[row, "vol (um3)"])
-        regions = unique[1:]
-        region_area = region_area[1:]
-        values = regions, region_area
-        region_table.at[row, "sample"] = tube
-        index = -1
-        if regions.size != 0:
-            for id in np.nditer(regions):
-                index += 1
-                if bg_atlas.structures[id]["acronym"][-1].isnumeric():
-                    newid = bg_atlas.structures[id]["structure_id_path"][
-                        -2
-                    ]  # moving one level up the hierarchy if cortical layer
-                elif (
-                    bg_atlas.structures[id]["acronym"][-2:] == "6a"
-                    or bg_atlas.structures[id]["acronym"][-2:] == "6b"
-                ):
-                    newid = bg_atlas.structures[id]["structure_id_path"][
-                        -2
-                    ]  # moving one level up the hierarchy if layer 6a/6b
-                else:
-                    newid = id
-                acronym = bg_atlas.structures[newid]["acronym"]
-                region_table.at[row, acronym] = region_area[index]
-    region_tab_contra = region_table
-    # take areas in samples of contralateral hemisphere, and re-label as belonging to contra
-
-    for i, row in region_table.iterrows():
-        if region_table["sample"].iloc[i] in contra_samples:
-            for col in region_table.columns:
-                if (
-                    col != "sample"
-                    and col.startswith("Contra") == False
-                    and np.isnan(region_table[col].iloc[i]) == False
-                ):
-                    newcol = "Contra-" + col
-                    if newcol not in region_tab_contra:
-                        region_tab_contra[newcol] = 0
-                    region_tab_contra[newcol].iloc[i] = region_table[col].iloc[i]
-                    region_tab_contra[col].iloc[i] = 0
-
-    nozero = region_table.fillna(0)
-
-
-@slurm_it(
-    conda_env="MAPseq_processing",
-    module_list=None,
-    slurm_options=dict(ntasks=1, time="24:00:00", mem="350G", partition="hmem"),
+    slurm_options=dict(ntasks=1, time="24:00:00", mem="50G", partition="ncpu"),
 )
 def group_ROI_coordinates(parameters_path, resolution, run_next):
     """
@@ -630,6 +633,9 @@ def group_ROI_coordinates(parameters_path, resolution, run_next):
     """
     parameters = load_parameters(directory=parameters_path)
     lcm_directory = parameters["lcm_directory"]
+    annotation_data = nrrd.read(parameters["allen_annotation_path"])
+    allen_anno = np.array(annotation_data)
+    annotation = allen_anno[0]
     add_z = get_z_value(
         parameters_path=parameters_path, euclidean=parameters["euclidean"]
     )
@@ -639,6 +645,7 @@ def group_ROI_coordinates(parameters_path, resolution, run_next):
         )  # this is the shape of the average template 10um ccf
     elif resolution == 25:
         empty_frame = np.zeros((528, 320, 456))
+    print('starting', flush=True)
     ROI_path = pathlib.Path(lcm_directory) / "rois"
     reg_dir = pathlib.Path(lcm_directory) / "allenccf/allen_ccf_coord"
     s = parameters["s"]
@@ -692,9 +699,19 @@ def group_ROI_coordinates(parameters_path, resolution, run_next):
                         y = pixcoord[1][k, l]
                         z = pixcoord[2][k, l]
                         if x != 0 and y != 0 and z != 0:
-                            empty_frame[int(x), int(y), int(z)] = int(tube)
-
+                        #don't include ROI regions that are outside the brain
+                            if resolution == 25:
+                                anno_x = x*2.5
+                                anno_y = y*2.5
+                                anno_z = z*2.5
+                            elif resolution == 10:
+                                anno_x = x
+                                anno_y = y
+                                anno_z = z
+                            if annotation[int(anno_x), int(anno_y), int(anno_z)] != 0: #don't include ROI regions that are outside the brain
+                                empty_frame[int(x), int(y), int(z)] = int(tube)
     remove_hemisphere_overlap(empty_frame)
+    print('finished')
     np.save(f"{lcm_directory}/ROI_3D_{resolution}.npy", empty_frame)
 
     print("finished")
@@ -755,7 +772,7 @@ def remove_hemisphere_overlap(roi_array):
 @slurm_it(
     conda_env="MAPseq_processing",
     module_list=None,
-    slurm_options=dict(ntasks=1, time="48:00:00", mem="50G", partition="cpu"),
+    slurm_options=dict(ntasks=1, time="48:00:00", mem="50G", partition="ncpu"),
 )
 def generate_region_table_across_samples(parameters_path):
     """
@@ -767,7 +784,7 @@ def generate_region_table_across_samples(parameters_path):
     """
     parameters = load_parameters(directory=parameters_path)
     lcm_dir = pathlib.Path(parameters["lcm_directory"])
-    roi_array = np.load(lcm_dir / "ROI_3D.npy")
+    roi_array = np.load(lcm_dir / "ROI_3D_10.npy")
     annotation_data = nrrd.read(parameters["allen_annotation_path"])
     allen_anno = np.array(annotation_data)
     annotation = allen_anno[0]
@@ -800,4 +817,4 @@ def generate_region_table_across_samples(parameters_path):
             "Brain Regions": roi_regions,
         }
     )
-    region_samples_dataframe.to_pickle(lcm_dir / "sample_vol_and_regions")
+    region_samples_dataframe.to_pickle(lcm_dir / "sample_vol_and_regions.pkl")
