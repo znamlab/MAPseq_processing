@@ -19,7 +19,8 @@ from znamutils import slurm_it
 from PIL import Image
 import os
 import yaml
-
+import shutil
+from skimage.morphology import binary_closing
 
 def convert_tif_to_jpg(input_folder, output_folder):
     # Ensure the output directory exists
@@ -28,9 +29,11 @@ def convert_tif_to_jpg(input_folder, output_folder):
     # Loop through all files in the input directory
     for filename in os.listdir(input_folder):
         # Check if the file is a TIFF image
+        input_path = os.path.join(input_folder, filename)
+        if filename.startswith("s"):
+            filename = "S" + filename[1:]
         if filename.lower().endswith((".tif", ".tiff")):
-            input_path = os.path.join(input_folder, filename)
-
+            #input_path = os.path.join(input_folder, filename)
             try:
                 # Load the TIFF image
                 with Image.open(input_path) as img:
@@ -44,6 +47,15 @@ def convert_tif_to_jpg(input_folder, output_folder):
 
             except OSError as e:
                 print(f"Error processing {filename}: {e}")
+                continue
+        elif filename.lower().endswith(".jpg"):
+            # Construct the output file path
+            output_path = os.path.join(output_folder, filename)
+            try:
+                # Copy the JPEG image
+                shutil.copy(input_path, output_path)
+            except OSError as e:
+                print(f"Error copying {filename}: {e}")
                 continue
 
 
@@ -81,9 +93,9 @@ def load_parameters(directory="root"):
 @slurm_it(
     conda_env="MAPseq_processing",
     module_list=None,
-    slurm_options=dict(ntasks=1, time="24:00:00", mem="350G", partition="ncpu"),
+    slurm_options=dict(ntasks=1, time="24:00:00", mem="20G", partition="ncpu"),
 )
-def convert_images(parameters_path, overwrite="yes"):
+def convert_images(parameters_path, overwrite="no"):
     """
     Function to convert LCM images into npy files with non-linear deformation
     Args:
@@ -138,12 +150,13 @@ def convert_images(parameters_path, overwrite="yes"):
             ignore_index=True,
         )
     # incorporate allen conversion units, and subsequently also incorporate functions from NITRC.org
-    allen_matrix_conv = [
-        [0, 0, 25, 0],
-        [-25, 0, 0, 0],
-        [0, -25, 0, 0],
-        [13175, 7975, 0, 1],
-    ]
+    # allen_matrix_conv = [
+    #     [0, 0, 25, 0],
+    #     [-25, 0, 0, 0],
+    #     [0, -25, 0, 0],
+    #     [13175, 7975, 0, 1],
+    # ]
+    job_list = []
     for i, row in slice_coord["filename"].iteritems():
         if row.endswith(".jpeg"):
             section = row[: -len(".jpeg")]
@@ -160,46 +173,166 @@ def convert_images(parameters_path, overwrite="yes"):
                 f"Performing non-linear deformation for {section} at {datetime.datetime.now()}",
                 flush=True,
             )
-            which = slice_coord.iloc[i]
-            x_val = list(range(0, which["width"]))
-            y_val = list(range(0, which["height"]))
-            coord = np.meshgrid(x_val, y_val)
-            width = which["width"]
-            height = which["height"]
-            newcoord = []
-            # perform non-linear deformation of coordinates on each set of section image pixels according info in json file.
-            triangulation = vis.triangulate(width, height, which["markers"])
-            for x, y in np.nditer(coord):
-                i, j = vis.transform(triangulation, x, y)
-                nc = (i, j)
-                newcoord.append(nc)
-            # make  new x y matrices of containing new non-linearly deformed coordinates
-            gi = pd.DataFrame(newcoord)
-            Xt = np.reshape(np.array(gi[0]), (height, width))
-            Yt = np.reshape(np.array(gi[1]), (height, width))
+            job = lrf.convert_job(section_to_look=section, which_one =i, parameters_path=parameters_path,
+                    scripts_name=f"converting_{section}",
+                    slurm_folder="/camp/home/turnerb/slurm_logs", use_slurm='True',
+                )
+            job_list.append(job)
+        
+    job_list = ":".join(map(str, job_list))
+    lrf.get_euclidean_distance(
+    parameters_path=parameters_path,
+    use_slurm=True,
+    job_dependency=job_list,
+    slurm_folder="/camp/home/turnerb/slurm_logs", 
+)
+        
+                    
+            # which = slice_coord.iloc[i]
+            # x_val = list(range(0, which["width"]))
+            # y_val = list(range(0, which["height"]))
+            # coord = np.meshgrid(x_val, y_val)
+            # width = which["width"]
+            # height = which["height"]
+            # newcoord = []
+            # # perform non-linear deformation of coordinates on each set of section image pixels according info in json file.
+            # triangulation = vis.triangulate(width, height, which["markers"])
+            # for x, y in np.nditer(coord):
+            #     i, j = vis.transform(triangulation, x, y)
+            #     nc = (i, j)
+            #     newcoord.append(nc)
+            # # make  new x y matrices of containing new non-linearly deformed coordinates
+            # gi = pd.DataFrame(newcoord)
+            # Xt = np.reshape(np.array(gi[0]), (height, width))
+            # Yt = np.reshape(np.array(gi[1]), (height, width))
 
-            # now transform the deformed and registered quickNII image section coordinates to allen ccf
-            print(
-                "Converting to Allen Coordinates. %s"
-                % datetime.datetime.now().strftime("%H:%M:%S"),
-                flush=True,
-            )
-            U_V_O_vector = [
-                [which["ux"], which["uy"], which["uz"]],
-                [which["vx"], which["vy"], which["vz"]],
-                [which["ox"], which["oy"], which["oz"]],
-            ]
-            # generate 3D voxels from pixel coordinates for each file
-            div_h = (
-                which["height"] - 1
-            )  # minus one, since u and v vectors vary between 0 and one, and pixels start at 0 (so max Xt/width is 1 only when -1)
-            div_w = which["width"] - 1  # ibid
-            [xv, yv, zv] = np.matmul([(Xt / div_w), (Yt / div_h), 1], U_V_O_vector)
-            # transform into allen coord
-            [xa, ya, za, one] = np.matmul([xv, yv, zv, 1], allen_matrix_conv)
-            allen_vox = [xa, ya, za, one]
-            np.save(filename, allen_vox)
+            # # now transform the deformed and registered quickNII image section coordinates to allen ccf
+            # print(
+            #     "Converting to Allen Coordinates. %s"
+            #     % datetime.datetime.now().strftime("%H:%M:%S"),
+            #     flush=True,
+            # )
+            # U_V_O_vector = [
+            #     [which["ux"], which["uy"], which["uz"]],
+            #     [which["vx"], which["vy"], which["vz"]],
+            #     [which["ox"], which["oy"], which["oz"]],
+            # ]
+            # # generate 3D voxels from pixel coordinates for each file
+            # div_h = (
+            #     which["height"] - 1
+            # )  # minus one, since u and v vectors vary between 0 and one, and pixels start at 0 (so max Xt/width is 1 only when -1)
+            # div_w = which["width"] - 1  # ibid
+            # [xv, yv, zv] = np.matmul([(Xt / div_w), (Yt / div_h), 1], U_V_O_vector)
+            # # transform into allen coord
+            # [xa, ya, za, one] = np.matmul([xv, yv, zv, 1], allen_matrix_conv)
+            # allen_vox = [xa, ya, za, one]
+            # np.save(filename, allen_vox)
 
+@slurm_it(
+    conda_env="MAPseq_processing",
+    module_list=None,
+    slurm_options=dict(ntasks=1, time="24:00:00", mem="20G", partition="ncpu"),
+)
+def convert_job(section_to_look, parameters_path, which_one):
+    """
+    Function to convert image into allen ccf
+    """
+    parameters = load_parameters(directory=parameters_path)
+    lcm_aligned_dir = pathlib.Path(parameters["lcm_aligned_dir"])
+    saving_path = pathlib.Path(lcm_aligned_dir).parents[1] / "allenccf/allen_ccf_coord"
+    if section_to_look.startswith('_'):
+            filename = f"{str(saving_path)}/allen_ccf_converted{section_to_look}"
+    else:
+        filename = f"{str(saving_path)}/allen_ccf_converted_{section_to_look}"
+    pathlib.Path(saving_path).mkdir(parents=True, exist_ok=True)
+    with open(lcm_aligned_dir) as fp:
+        bla = json.load(fp)
+    slice_coord = pd.DataFrame(
+        columns=[
+            "filename",
+            "ox",
+            "oy",
+            "oz",
+            "ux",
+            "uy",
+            "uz",
+            "vx",
+            "vy",
+            "vz",
+            "markers",
+            "height",
+            "width",
+        ],
+        dtype=int,
+    )
+    for slice in bla["slices"]:
+        anchoring = slice["anchoring"]
+        slice_coord = slice_coord.append(
+            {
+                "filename": slice["filename"],
+                "ox": (anchoring[0]),
+                "oy": (anchoring[1]),
+                "oz": (anchoring[2]),
+                "ux": (anchoring[3]),
+                "uy": (anchoring[4]),
+                "uz": (anchoring[5]),
+                "vx": (anchoring[6]),
+                "vy": (anchoring[7]),
+                "vz": (anchoring[8]),
+                "markers": (slice["markers"]),
+                "height": (slice["height"]),
+                "width": (slice["width"]),
+            },
+            ignore_index=True,
+        )
+    
+    allen_matrix_conv = [
+    [0, 0, 25, 0],
+    [-25, 0, 0, 0],
+    [0, -25, 0, 0],
+    [13175, 7975, 0, 1],]
+    which = slice_coord.iloc[which_one]
+    x_val = list(range(0, which["width"]))
+    y_val = list(range(0, which["height"]))
+    coord = np.meshgrid(x_val, y_val)
+    width = which["width"]
+    height = which["height"]
+    newcoord = []
+    # perform non-linear deformation of coordinates on each set of section image pixels according info in json file.
+    triangulation = vis.triangulate(width, height, which["markers"])
+    for x, y in np.nditer(coord):
+        try:
+            i, j = vis.transform(triangulation, x, y)
+        except TypeError:
+            print(f'something wrong at x= {x} y = {y}', Flush=True)
+        nc = (i, j)
+        newcoord.append(nc)
+    # make  new x y matrices of containing new non-linearly deformed coordinates
+    gi = pd.DataFrame(newcoord)
+    Xt = np.reshape(np.array(gi[0]), (height, width))
+    Yt = np.reshape(np.array(gi[1]), (height, width))
+
+    # now transform the deformed and registered quickNII image section coordinates to allen ccf
+    print(
+        "Converting to Allen Coordinates. %s"
+        % datetime.datetime.now().strftime("%H:%M:%S"),
+        flush=True,
+    )
+    U_V_O_vector = [
+        [which["ux"], which["uy"], which["uz"]],
+        [which["vx"], which["vy"], which["vz"]],
+        [which["ox"], which["oy"], which["oz"]],
+    ]
+    # generate 3D voxels from pixel coordinates for each file
+    div_h = (
+        which["height"] - 1
+    )  # minus one, since u and v vectors vary between 0 and one, and pixels start at 0 (so max Xt/width is 1 only when -1)
+    div_w = which["width"] - 1  # ibid
+    [xv, yv, zv] = np.matmul([(Xt / div_w), (Yt / div_h), 1], U_V_O_vector)
+    # transform into allen coord
+    [xa, ya, za, one] = np.matmul([xv, yv, zv, 1], allen_matrix_conv)
+    allen_vox = [xa, ya, za, one]
+    np.save(filename, allen_vox)
 
 def get_z_value(parameters_path, euclidean):
     """
@@ -621,12 +754,12 @@ def calc_euclidean_distance(directory, slice):
     module_list=None,
     slurm_options=dict(ntasks=1, time="24:00:00", mem="50G", partition="ncpu"),
 )
-def group_ROI_coordinates(parameters_path, resolution, run_next):
+def group_ROI_coordinates(parameters_path, run_next, resolution=25):
     """
     Function to take a template of allen atlas, then put all the roi's in appropriate coordinate positions, numbered by the sample number.
     Args:
         lcm_directory (str): path to where lcm directory is
-        resolution (int): 10 or 25 um depending on what resolution you want your 3D numpy array
+        resolution (int): 25um is automatic. 10 or 25 um depending on what resolution you want your 3D numpy array. NB, you need to adjust annotation to pixel if you want to use 10um, or change the annotation nrrd file resolution. I've taken out the option as all registration is done in 25um resolution,so 10um is superfluous.
         run_next(str): 'yes' or 'no', whether you want to run the next functions or not
     Returns:
         None
@@ -700,19 +833,13 @@ def group_ROI_coordinates(parameters_path, resolution, run_next):
                         z = pixcoord[2][k, l]
                         if x != 0 and y != 0 and z != 0:
                         #don't include ROI regions that are outside the brain
-                            if resolution == 25:
-                                anno_x = x*2.5
-                                anno_y = y*2.5
-                                anno_z = z*2.5
-                            elif resolution == 10:
-                                anno_x = x
-                                anno_y = y
-                                anno_z = z
-                            if annotation[int(anno_x), int(anno_y), int(anno_z)] != 0: #don't include ROI regions that are outside the brain
+                            if annotation[int(x), int(y), int(z)] != 0: #don't include ROI regions that are outside the brain
                                 empty_frame[int(x), int(y), int(z)] = int(tube)
-    remove_hemisphere_overlap(empty_frame)
+    #now correct registration errors
+    updated_roi_array = remove_hemisphere_overlap(empty_frame)
+    updated_roi_array = remove_roi_holes(updated_roi_array)
     print('finished')
-    np.save(f"{lcm_directory}/ROI_3D_{resolution}.npy", empty_frame)
+    np.save(f"{lcm_directory}/ROI_3D_{resolution}.npy", updated_roi_array)
 
     print("finished")
     if run_next == "yes":
@@ -768,7 +895,23 @@ def remove_hemisphere_overlap(roi_array):
 
     return roi_array_processed
 
-
+def remove_roi_holes(roi_array):
+    """
+    Function to close holes in ROIs generated by large deformations in nonlinear registration
+    """
+    structure = np.ones((2,2,2)) # structure that we use to close holes
+    roi_3d = roi_array.astype('uint8')
+    to_attribute = roi_3d == 0
+    cleaned_3d = roi_3d.copy()
+    for tube in np.unique(roi_3d):
+        if tube == 0:
+            continue
+        mask = roi_3d == tube
+        closed_mask = binary_closing(mask,  structure)
+        cleaned_3d[to_attribute] = closed_mask[to_attribute].astype('uint8') * tube
+        to_attribute = cleaned_3d == 0
+    return cleaned_3d
+   
 @slurm_it(
     conda_env="MAPseq_processing",
     module_list=None,
