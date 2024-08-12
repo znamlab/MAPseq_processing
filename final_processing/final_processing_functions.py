@@ -1069,7 +1069,7 @@ def get_three_shuffles(mice):
                 ]
             )
         )
-        barcodes_across_sample = pd.read_pickle(sequencing_directory / "A1_barcodes.pkl")
+        barcodes_across_sample = pd.read_pickle(sequencing_directory / "A1_barcodes_thresholded.pkl")
         lcm_directory = parameters["lcm_directory"]
         barcodes_across_sample = barcodes_across_sample[
             barcodes_across_sample.astype(bool).sum(axis=1) > 0
@@ -1383,3 +1383,131 @@ def collate_all_shuffles_ant_post(temp_shuffle_folder):
         for file_path in list_all:
             if file_path.startswith(file_start):
                 os.remove(path_to_look/file_path)
+
+
+def get_AUDp(df):
+    """
+    Function to get indexes in the sample_vol dataframe that contain main AUDp
+    Args:
+        df: pandas dataframe with samples and area volumes
+    Returns:
+        indexes for the df
+    """
+    indexes = []
+    for i, r in df.iterrows():
+        if 'AUDp' in r['regions']:
+            for region in r['regions']:
+                if region == 'AUDp':
+                    indexes.append(i)
+                    break
+    return indexes
+
+
+def get_area_volumes_as_main(barcode_table_cols, lcm_directory):
+    """
+    Function to get volumes of each registered brain area from each LCM sample, but only the main area of each cubelet is kept
+    Args:
+        barcode_table_cols: list of column names of the barcode matrix
+        lcm_directory: path to where the lcm_directory is
+    Returns: area vol pandas dataframe
+    """
+    sample_vol_and_regions = pd.read_pickle(
+        "".join([lcm_directory, "/sample_vol_and_regions.pkl"])
+    )
+    sample_vol_and_regions["regions"] = sample_vol_and_regions["regions"].apply(
+        ast.literal_eval
+    )
+    sample_vol_and_regions["breakdown"] = sample_vol_and_regions["breakdown"].apply(
+        ast.literal_eval
+    )
+    all_areas_unique_acronymn = np.unique(
+        sample_vol_and_regions["regions"].explode().to_list()
+    )
+    all_area_df = pd.DataFrame(
+        index=barcode_table_cols, columns=all_areas_unique_acronymn
+    )
+    for column in barcode_table_cols:
+        # all_regions = sample_vol_and_regions_FIAA456d.loc[sample_vol_and_regions_FIAA456d.index[sample_vol_and_regions_FIAA456d['ROI Number'] == column].tolist(), 'Brain Regions'].explode().astype(int)
+        index = sample_vol_and_regions[
+            sample_vol_and_regions["ROI Number"] == column
+        ].index
+        reg = pd.DataFrame()
+        reg["regions"] = [i for i in sample_vol_and_regions.loc[index, "regions"]][0]
+        reg["fraction"] = [i for i in sample_vol_and_regions.loc[index, "breakdown"]][0]
+        reg["vol_area"] = (
+            reg["fraction"] * sample_vol_and_regions.loc[index, "Volume (um^3)"].item()
+        )
+
+        for _, row in reg.iterrows():
+            all_area_df.loc[column, row["regions"]] = row["vol_area"]
+    group_areas = {"Contra": all_area_df.filter(like="Contra").columns}
+    areas_grouped = all_area_df.copy()
+    for group, columns in group_areas.items():
+        areas_grouped[group] = areas_grouped.filter(items=columns).sum(axis=1)
+        columns = [value for value in columns if value in all_area_df.columns]
+        areas_grouped = areas_grouped.drop(columns, axis=1)
+    nontarget_list = ["fiber tracts", "root"]
+    nontarget_list = [value for value in nontarget_list if value in all_area_df.columns]
+    areas_only_grouped = areas_grouped.drop(nontarget_list, axis=1)
+    areas_only_grouped = areas_only_grouped.apply(lambda row: row.where(row == row.max(), 0), axis=1)
+    return areas_only_grouped.fillna(0)
+
+def area_is_main(parameters_path, cortical, shuffled, barcode_matrix):
+    """
+    Function to output a matrix of neuron barcode distribution across areas, where we assume that the main area in each cubelet is where the barcode counts belong to
+    Args:
+        parameters_path
+        barcode_matrix = pandas dataframe with barcodes
+        cortical (bool): True if you want onkly to look at cortical regions
+        shuffled (bool): True if you want to shuffle values in all columns as a negative control
+    """
+    parameters = ps.load_parameters(directory=parameters_path)
+    sequencing_directory = pathlib.Path(
+        "".join(
+            [
+                parameters["PROCESSED_DIR"],
+                "/",
+                parameters["PROJECT"],
+                "/",
+                parameters["MOUSE"],
+                "/Sequencing",
+            ]
+        )
+    )
+    
+    #barcodes_across_sample = pd.read_pickle(sequencing_directory / "A1_barcodes.pkl")
+    barcodes_across_sample = barcode_matrix
+
+    lcm_directory = parameters["lcm_directory"]
+    cortical_samples_columns = [
+        int(col)
+        for col in parameters["cortical_samples"]
+        if col in barcodes_across_sample.columns
+    ]
+    # only look at cortical samples
+    if cortical:
+        barcodes_across_sample = barcodes_across_sample[cortical_samples_columns]
+    barcodes_across_sample = barcodes_across_sample[
+        barcodes_across_sample.astype(bool).sum(axis=1) > 0
+    ]
+
+    areas_only_grouped = get_area_volumes_as_main(
+        barcode_table_cols=barcodes_across_sample.columns, lcm_directory=lcm_directory
+    )
+    areas_matrix = areas_only_grouped.to_numpy()
+    total_frac = np.sum(areas_matrix, axis=1)
+    frac_matrix = areas_matrix / total_frac[:, np.newaxis]
+    weighted_frac_matrix = frac_matrix / areas_matrix.sum(axis=0)
+
+    barcodes = barcodes_across_sample.to_numpy()
+    if shuffled:
+        barcodes = send_to_shuffle(barcodes=barcodes)
+    total_projection_strength = np.sum(barcodes, axis=1) #changed as normalised before
+    barcodes = barcodes/ total_projection_strength[:, np.newaxis]
+    bc_matrix = np.matmul(barcodes, weighted_frac_matrix) 
+    bc_matrix = pd.DataFrame(
+        data=bc_matrix, columns=areas_only_grouped.columns.to_list(), index = barcodes_across_sample.index
+    )
+
+    bc_matrix = bc_matrix.loc[~(bc_matrix == 0).all(axis=1)]
+    return bc_matrix.fillna(0)
