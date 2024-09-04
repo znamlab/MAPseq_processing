@@ -106,7 +106,7 @@ def get_id(id):
     Returns:
         acronym(str)
     """
-    bg_atlas = BrainGlobeAtlas("allen_mouse_10um", check_latest=False)
+    bg_atlas = BrainGlobeAtlas("allen_mouse_25m", check_latest=True)
     if id > 0:
         if bg_atlas.structures[id]["acronym"][-1].isnumeric():
             id = bg_atlas.structures[id]["structure_id_path"][
@@ -205,7 +205,7 @@ def get_main_region(sample_vol, parameters_path):
 
     for index, row in sample_vol_and_regions_table.iterrows():
         all_regions = sample_vol_and_regions_table.loc[index]["Brain Regions"]
-        all_regions = [i for i in all_regions if i != 0]
+        all_regions = [i for i in all_regions if i != 0 and i != 997 and i != 1009] #997 are 'fibre tracts' and 1009 is 'root', we don't want to include these in the analysis
         all_reg_converted = []
         all_reg, counts = np.unique(all_regions, return_counts=True)
         for i in all_reg:
@@ -492,7 +492,7 @@ def collate_chunks(parameters_path, shuffle):
     all_tables.to_pickle(f"{parameters_path}/{name}.pkl")
 
 
-def homog_across_cubelet(parameters_path, cortical, shuffled, barcode_matrix, dummy_data = False):
+def homog_across_cubelet(parameters_path, cortical, shuffled, barcode_matrix, dummy_data = False, CT_PT_only = False, IT_only=False):
     """
     Function to output a matrix of homogenous across areas, looking only at cortical samples
     Args:
@@ -501,6 +501,8 @@ def homog_across_cubelet(parameters_path, cortical, shuffled, barcode_matrix, du
         cortical (bool): True if you want onkly to look at cortical regions
         shuffled (bool): True if you want to shuffle values in all columns as a negative control
         dummy_data (bool): True if you want to create a dummy dataset, with bias towards particular samples
+        CT_PT_only (bool): True if you just want to look at corticothalamic/pyramidal tract neurons
+        IT_only (bool): True if you want to look at only intratelencephalic neurons
     """
     parameters = ps.load_parameters(directory=parameters_path)
     sequencing_directory = pathlib.Path(
@@ -517,7 +519,7 @@ def homog_across_cubelet(parameters_path, cortical, shuffled, barcode_matrix, du
     )
     
     #barcodes_across_sample = pd.read_pickle(sequencing_directory / "A1_barcodes.pkl")
-    barcodes_across_sample = barcode_matrix
+    barcodes_across_sample = barcode_matrix.copy()
     if dummy_data:
         if parameters["MOUSE"] == 'FIAA45.6a':
             samples = [79, 113] #containing VISpm and VISa predominantly respectively
@@ -544,6 +546,22 @@ def homog_across_cubelet(parameters_path, cortical, shuffled, barcode_matrix, du
     # only look at cortical samples
     if cortical:
         barcodes_across_sample = barcodes_across_sample[cortical_samples_columns]
+    if CT_PT_only or IT_only:
+        sample_vol_and_regions = pd.read_pickle(
+        "".join([lcm_directory, "/sample_vol_and_regions.pkl"])
+    )
+        sample_vol_and_regions['regions'] = sample_vol_and_regions['regions'].apply(ast.literal_eval)
+        roi_list = []
+        index_list = []
+        for index, row in sample_vol_and_regions.iterrows():
+            if any('IC' in region or 'SCs' in region or 'SCm' in region or 'LGd' in region or 'LGv' in region or 'MGv' in region or 'RT' in region or 'LP' in region or 'MGd' in region  or 'P,' in region for region in row['regions']):
+                if row['ROI Number'] not in parameters['cortical_samples']:
+                    index_list.append(index)
+                    roi_list.append(row['ROI Number'])
+        if CT_PT_only:
+            barcodes_across_sample = barcodes_across_sample[barcodes_across_sample[roi_list].sum(axis=1)>0]
+        if IT_only:
+            barcodes_across_sample = barcodes_across_sample[barcodes_across_sample[roi_list].sum(axis=1)==0]
     barcodes_across_sample = barcodes_across_sample[
         barcodes_across_sample.astype(bool).sum(axis=1) > 0
     ]
@@ -669,6 +687,9 @@ def get_area_volumes(barcode_table_cols, lcm_directory):
     nontarget_list = ["fiber tracts", "root"]
     nontarget_list = [value for value in nontarget_list if value in all_area_df.columns]
     areas_only_grouped = areas_grouped.drop(nontarget_list, axis=1)
+    areas_only_grouped = areas_only_grouped.apply(
+    lambda row: row.where(row >= 0.05 * row.sum(), np.nan), axis=1
+)
     return areas_only_grouped.fillna(0)
 
 
@@ -1008,6 +1029,9 @@ def get_shuffles(mice, temp_shuffle_folder, iteration, proj_folder):
     #     pickle.dump(shuffled_combined_cubelet_dict, fp)
     # with open('/camp/lab/znamenskiyp/home/shared/code/MAPseq_processing/shuffled_area.pkl', 'wb') as fp:
     #     pickle.dump(shuffled_combined_area_dict, fp)
+
+
+
         
 @slurm_it(
     conda_env="MAPseq_processing",
@@ -1511,3 +1535,103 @@ def area_is_main(parameters_path, cortical, shuffled, barcode_matrix):
 
     bc_matrix = bc_matrix.loc[~(bc_matrix == 0).all(axis=1)]
     return bc_matrix.fillna(0)
+
+
+@slurm_it(
+    conda_env="MAPseq_processing",
+    module_list=None,
+    slurm_options=dict(ntasks=1, time="12:00:00", mem="16G", partition="ncpu"),
+)
+def get_upper_lower_shuffles(mice, temp_shuffle_folder, iteration, proj_folder):
+    """
+    Function to provide a list of 1000 shuffles of your datasets.
+    Args:
+        mice : list of mice
+    """
+    #first let's get area projections for 1000 shuffle replicates
+    num_shuffles = 100
+    warnings.filterwarnings('ignore')
+
+    combined_matrices = {}
+    upper_lower_dict = pd.read_pickle(f'{proj_folder}/upper_lower_dict.pkl')
+    layers = ['upper_layer', 'lower_layer']
+    shuffle_dict = {}
+    cols_to_look=['VISp', 'VISpor', 'VISli', 'VISal', 'VISl', 'VISpl', 'VISpm','VISrl',  'VISam', 'VISa', 'RSPv', 'RSPd', 'STR', 'RSPagl', 'ACAd', 'ACAv', 'SSp', 'SSs', 'MOp', 'MOs', 'TEa', 'Contra','AUDd', 'AUDv', 'HPF', 'ECT', 'PERI']
+    for i in range(num_shuffles):
+        for layer in layers:
+            combined_dict_proper ={}
+            for num, mouse in enumerate(mice):
+                parameters_path = (
+                f"{proj_folder}/{mouse}/Sequencing")
+                parameters = ps.load_parameters(directory=parameters_path)
+                lcm_directory = parameters["lcm_directory"]
+                barcodes =upper_lower_dict[mouse][layer]
+                new_df = fpf.homog_across_cubelet(parameters_path=parameters_path, barcode_matrix = barcodes, cortical=False, shuffled=True, dummy_data= False, IT_only=True)
+                combined_dict_proper[mouse]=new_df
+            common_columns = set(combined_dict_proper['FIAA45.6a'].columns).intersection(combined_dict_proper['FIAA45.6d'].columns)
+            combined_matrices[layer] = pd.concat([combined_dict_proper['FIAA45.6a'][common_columns], combined_dict_proper['FIAA45.6d'][common_columns]], ignore_index=False)
+
+
+        upper_matrix = combined_matrices['upper_layer'][cols_to_look]
+        lower_matrix = combined_matrices['lower_layer'][cols_to_look]
+        for number, col in enumerate(cols_to_look):
+            upper_P =upper_matrix[upper_matrix[col] >0].astype(bool).astype(int).mean(axis=0)
+            upper_odds = upper_P/(1-upper_P)
+            lower_P = lower_matrix[lower_matrix[col] >0].astype(bool).astype(int).mean(axis=0)
+            lower_odds = lower_P/(1-lower_P)
+            odds_ratio = upper_odds/lower_odds
+            new_df =pd.DataFrame(odds_ratio).T
+            new_df.index = [i]
+            if i == 0:
+                shuffle_dict[col] = new_df.copy()
+            else:
+                shuffle_dict[col] = pd.concat([shuffle_dict[col], new_df])
+    with open(f'{temp_shuffle_folder}/shuffled_odds_ratio_{iteration}.pkl', 'wb') as f:
+        pickle.dump(shuffle_dict, f)
+    
+    
+    
+@slurm_it(
+    conda_env="MAPseq_processing",
+    module_list=None,
+    slurm_options=dict(ntasks=1, time="24:00:00", mem="100G", partition="ncpu"),
+)
+def collate_all_shuffles_upper_lower(temp_shuffle_folder):
+    """
+    Function to combine the shuffle population tables
+    """
+    files_to_look = ['shuffled_odds_ratio_']
+    path_to_look = pathlib.Path(temp_shuffle_folder)
+    new_folder = path_to_look.parent/'collated_shuffles'
+    new_folder.mkdir(parents=True, exist_ok=True)
+    cols_to_look=['VISp', 'VISpor', 'VISli', 'VISal', 'VISl', 'VISpl', 'VISpm','VISrl',  'VISam', 'VISa', 'RSPv', 'RSPd', 'STR', 'RSPagl', 'ACAd', 'ACAv', 'SSp', 'SSs', 'MOp', 'MOs', 'TEa', 'Contra','AUDd', 'AUDv', 'HPF', 'ECT', 'PERI']
+    
+    
+    for file_start in files_to_look:    
+        all_files = path_to_look.glob(f"{file_start}*.pkl")
+        
+        concatenated_dfs = {col: [] for col in cols_to_look}  # Dictionary to hold concatenated DataFrames
+
+        # Process each pickle file
+        for f in all_files:
+            df_dict = pd.read_pickle(f)  # Load the dictionary of DataFrames from the pickle file
+            for col in cols_to_look:
+                if col in df_dict:
+                    concatenated_dfs[col].append(df_dict[col])  # Append the DataFrame to the list
+
+        # Concatenate DataFrames for each column
+        for col in cols_to_look:
+            if concatenated_dfs[col]:
+                concatenated_dfs[col] = pd.concat(concatenated_dfs[col])
+
+        # Save the concatenated DataFrames dictionary back to a new pickle file
+        output_file = new_folder / f"{file_start}collated.pkl"
+        with open(output_file, 'wb') as out_f:
+            pd.to_pickle(concatenated_dfs, out_f)
+
+        # Clean up old files
+        list_all = os.listdir(path_to_look)
+        for file_path in list_all:
+            if file_path.startswith(file_start):
+                os.remove(path_to_look / file_path)
+

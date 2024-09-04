@@ -13,7 +13,7 @@ from znamutils import slurm_it
 import yaml
 
 
-def load_parameters(directory="root"):
+def load_parameters(directory):
     """Load the parameters yaml file containing all the parameters required for
     preprocessing MAPseq data
 
@@ -64,7 +64,7 @@ def initialise_flz(
     module_list=["FASTX-Toolkit"],
     slurm_options=dict(ntasks=1, time="72:00:00", mem="50G", partition="ncpu"),
 )
-def split_samples(verbose=1, start_next_step=True):
+def split_samples(parameters_path, verbose=1, start_next_step=True):
     """Split raw fastq data according to sample barcodes
 
     This unzips raw fastq.gz files, cuts the two reads if needed (using `r1_part` and
@@ -100,17 +100,21 @@ def split_samples(verbose=1, start_next_step=True):
     Returns:
         None
     """
-
-    parameters = load_parameters(directory="root")
-    parameters_file = pathlib.Path(__file__).parent / "parameters.yml"
+  
+    if parameters_path == 'root':    
+        parameters = load_parameters(directory='root')
+        parameters_file = pathlib.Path(__file__).parent / "parameters.yml"
+        # make a copy of the parameters file in the processed folder
+        new_dir = processed_dir / parameters["PROJECT"] / parameters["MOUSE"] / "Sequencing"
+        new_dir.mkdir(parents=True, exist_ok=True)
+        parameters_copy = new_dir / f"parameters.yml"
+        shutil.copy(str(parameters_file), str(parameters_copy))
+    # if more than one sequencing round, you will have more than one aqu_id in parameters, therefore you loop through and combine later
+    elif parameters_path != 'root':
+        parameters = load_parameters(directory=parameters_path)
+        new_dir = pathlib.Path(parameters_path)
     processed_dir = pathlib.Path(parameters["PROCESSED_DIR"])
     job_list = []
-    # make a copy of the parameters file in the processed folder
-    new_dir = processed_dir / parameters["PROJECT"] / parameters["MOUSE"] / "Sequencing"
-    new_dir.mkdir(parents=True, exist_ok=True)
-    parameters_copy = new_dir / f"parameters.yml"
-    shutil.copy(str(parameters_file), str(parameters_copy))
-    # if more than one sequencing round, you will have more than one aqu_id in parameters, therefore you loop through and combine later
     for i in parameters["acq_id"]:
         output_dir = (
             processed_dir
