@@ -563,6 +563,7 @@ def correct_all_umis(directory, barcode_per_batch=50000):
         slurm_folder=parameters["SLURM_DIR"],
         job_dependency=job_ids,
     )
+    print('sent job to collate error correction results')
 
 
 @slurm_it(
@@ -652,11 +653,11 @@ def collate_error_correction_results(directory, temp_output):
         # Delete the barcode only intermediate files
         int_file = temp_output.joinpath(f"neuron_only_corrected_{barcode}.pkl")
         if int_file.is_file():
-            #    os.remove(int_file)
+            os.remove(int_file)
             print("Removed intermediate pkl file", flush=True)
         # delete the UMI batch files
-        # for f in all_files:
-        #    os.remove(f)
+        for f in all_files:
+            os.remove(f)
         print("Removed all batch files", flush=True)
 
     # start the next job
@@ -716,7 +717,7 @@ def error_correct_sequence(reads, sequence_type):
     module_list=None,
     slurm_options=dict(ntasks=1, time="48:00:00", mem="350G", partition="ncpu"),
 )
-def join_tabs_and_split(directory):
+def join_tabs_and_split(directory, overwrite=True):
     """
     Function to generate a table to check the amount of template switching across entire
     sample set, split into smaller chunks for processing in separate jobs
@@ -735,7 +736,7 @@ def join_tabs_and_split(directory):
     pathlib.Path(slurm_folder).mkdir(parents=True, exist_ok=True)
     pathlib.Path(chunk_dir).mkdir(parents=True, exist_ok=True)
 
-    if pathlib.Path(template_dir / "template_switching_all_seq.csv").is_file():
+    if pathlib.Path(template_dir / "template_switching_all_seq.csv").is_file() and overwrite==False:
         print("Reading full table combined", flush=True)
         barcode_sequences = pd.read_csv(template_dir / "template_switching_all_seq.csv")
     else:
@@ -977,7 +978,7 @@ def combine_UMI_and_BC(directory):
                 sample_table = sample_table.drop(
                     pot_switches[pot_switches["drop_or_not"] == "yes"].index.tolist()
                 )
-            elif pot_switches.empty == False:
+            elif pot_switches.empty != False:
                 print(f"no template switches found for {barcode}", flush=True)
             # separate and save spike in vs neuron barcodes
             print(f"collapsing umi counts for {barcode}", flush=True)
