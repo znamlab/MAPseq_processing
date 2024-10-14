@@ -787,7 +787,6 @@ def group_ROI_coordinates(parameters_path, run_next, resolution=25):
     else:
         section_start = "s"
     for ROI_to_look in os.listdir(ROI_path):
-        # region = ROI_path/'s015_TUBE6.png'
         region = ROI_path / ROI_to_look
         if ROI_to_look.startswith("s0") or ROI_to_look.startswith("S0"):
             slicename = region.stem[1:4]
@@ -838,6 +837,9 @@ def group_ROI_coordinates(parameters_path, run_next, resolution=25):
     #now correct registration errors
     updated_roi_array = remove_hemisphere_overlap(empty_frame)
     updated_roi_array = remove_roi_holes(updated_roi_array)
+    #because removing the holes actually smoothes out the rois and then adds pixels to the outside of the brain, let's reset so only rois within the brain are annotated
+    annotation_mask = np.where(annotation != 0, 1, 0)
+    updated_roi_array = updated_roi_array*annotation_mask
     print('finished')
     np.save(f"{lcm_directory}/ROI_3D_{resolution}.npy", updated_roi_array)
 
@@ -911,6 +913,13 @@ def remove_roi_holes(roi_array):
         cleaned_3d[to_attribute] = closed_mask[to_attribute].astype('uint8') * tube
         to_attribute = cleaned_3d == 0
     return cleaned_3d
+
+def check_non_target(arr, nontarget_ids):
+    """function to check if an id in the non target list"""
+    for num in nontarget_ids:
+        if num in arr:
+            return False
+    return True
    
 @slurm_it(
     conda_env="MAPseq_processing",
@@ -927,13 +936,18 @@ def generate_region_table_across_samples(parameters_path):
     """
     parameters = load_parameters(directory=parameters_path)
     lcm_dir = pathlib.Path(parameters["lcm_directory"])
-    roi_array = np.load(lcm_dir / "ROI_3D_10.npy")
+    roi_array = np.load(lcm_dir / "ROI_3D_25.npy")
     annotation_data = nrrd.read(parameters["allen_annotation_path"])
+    nontarget_ids = []
+    nontarget_list = ["fiber tracts"]
+    bg_atlas = BrainGlobeAtlas("allen_mouse_25um", check_latest=True)
+    for nontarget in nontarget_list:
+        nontarget_ids.append(bg_atlas.structures[nontarget]['id'])
     allen_anno = np.array(annotation_data)
     annotation = allen_anno[0]
     roi_numbers = np.unique(roi_array)[1:]
     voxel_volume = (
-        10**3
+        25 #10**3
     )  # Voxel volume in cubic micrometers (assuming 10um resolution)
 
     roi_volumes = []
@@ -950,9 +964,11 @@ def generate_region_table_across_samples(parameters_path):
         regions = []
         for index in np.argwhere(roi_array == roi_num):
             annotation_label = annotation[tuple(index)]
-            regions.append(annotation_label)
+            if check_non_target(arr = bg_atlas.structures[annotation_label]["structure_id_path"], nontarget_ids=nontarget_ids):
+                regions.append(annotation_label)
 
         roi_regions.append(regions)
+        
     region_samples_dataframe = pd.DataFrame(
         {
             "ROI Number": roi_numbers,
