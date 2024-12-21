@@ -19,6 +19,7 @@ import os
 from sklearn.metrics.pairwise import cosine_similarity
 from allensdk.core.mouse_connectivity_cache import MouseConnectivityCache
 import yaml
+from random import sample, randint, shuffle
 
 
 def find_adjacent_samples(ROI_array, samples_to_look, parameters_path):
@@ -539,10 +540,9 @@ def homog_across_cubelet(
     cortical,
     shuffled,
     barcode_matrix,
-    dummy_data=False,
     CT_PT_only=False,
     IT_only=False,
-    area_threshold=0.1,
+    area_threshold=0.1, binary =False,
 ):
     """
     Function to output a matrix of homogenous across areas, looking only at cortical samples
@@ -571,22 +571,6 @@ def homog_across_cubelet(
 
     # barcodes_across_sample = pd.read_pickle(sequencing_directory / "A1_barcodes.pkl")
     barcodes_across_sample = barcode_matrix.copy()
-    if dummy_data:
-        if parameters["MOUSE"] == "FIAA45.6a":
-            samples = [79, 113]  # containing VISpm and VISa predominantly respectively
-        elif parameters["MOUSE"] == "FIAA45.6d":
-            samples = [74, 139]
-        width = len(barcodes_across_sample.columns)
-        length = len(barcodes_across_sample)
-
-        matrix = np.random.choice([0, 1], size=(length, width))
-        matrix = transfer_ones(
-            matrix=matrix, from_column=samples[0], to_column=samples[1], percentage=1
-        )
-
-        barcodes_across_sample = pd.DataFrame(
-            data=matrix, columns=barcodes_across_sample.columns
-        )
 
     lcm_directory = parameters["lcm_directory"]
     # sample_vol_and_regions = pd.read_pickle(''.join([lcm_directory, '/sample_vol_and_regions.pkl']))
@@ -679,7 +663,7 @@ def homog_across_cubelet(
     # barcodes_sum = barcodes_across_sample.sum(axis=1)
     # barcodes_across_sample =barcodes_across_sample.div(barcodes_sum, axis=0)
     barcodes = barcodes_across_sample.to_numpy()
-    if shuffled:
+    if shuffled and not binary:
         barcodes = send_to_shuffle(barcodes=barcodes)
     # areasFrac = pd.DataFrame(frac_matrix, columns=areas_only_grouped.columns)
     # for each barcode, create a matrix of BC count for regions in a sample based on amount of each region in LCM (makes assumption of equal BC distribution)
@@ -695,7 +679,12 @@ def homog_across_cubelet(
     # for column in bc_matrix.columns:
     #   if bc_matrix[column].sum() == 0:
     #      bc_matrix.drop([column], axis=1, inplace=True)
-
+    if binary:
+        barcodes = barcodes.astype(bool).astype(int)
+        if shuffled:
+            presences = find_presences(barcodes)
+            r_presences = presences[:]
+            barcodes = curve_ball(barcodes, r_presences, num_iterations=5*len(barcodes))
     total_projection_strength = np.sum(barcodes, axis=1)  # changed as normalised before
     barcodes = barcodes / total_projection_strength[:, np.newaxis]
     bc_matrix = np.matmul(barcodes, weighted_frac_matrix)
@@ -3127,3 +3116,38 @@ def convert_matrix_names(matrix):
     matrix.rename(columns=convert_dict, inplace=True)
     matrix.rename(index=convert_dict, inplace=True)
     return matrix
+
+def find_presences(input_matrix):
+	num_rows, num_cols = input_matrix.shape
+	hp = []
+	iters = num_rows if num_cols >= num_rows else num_cols
+	input_matrix_b = input_matrix if num_cols >= num_rows else np.transpose(input_matrix)
+	for r in range(iters):
+		hp.append(list(np.where(input_matrix_b[r] == 1)[0]))
+	return hp
+
+
+def curve_ball(input_matrix, r_hp, num_iterations=-1):
+	num_rows, num_cols = input_matrix.shape
+	l = range(len(r_hp))
+	num_iters = 5*min(num_rows, num_cols) if num_iterations == -1 else num_iterations
+	for rep in range(num_iters):
+		AB = sample(l, 2)
+		a = AB[0]
+		b = AB[1]
+		ab = set(r_hp[a])&set(r_hp[b]) # common elements
+		l_ab=len(ab)
+		l_a=len(r_hp[a])
+		l_b=len(r_hp[b])
+		if l_ab not in [l_a,l_b]:		
+			tot=list(set(r_hp[a]+r_hp[b])-ab)
+			ab=list(ab)	
+			shuffle(tot)
+			L=l_a-l_ab
+			r_hp[a] = ab+tot[:L]
+			r_hp[b] = ab+tot[L:]
+	out_mat = np.zeros(input_matrix.shape, dtype='int8') if num_cols >= num_rows else np.zeros(input_matrix.T.shape, dtype='int8')
+	for r in range(min(num_rows, num_cols)):
+		out_mat[r, r_hp[r]] = 1
+	result = out_mat if num_cols >= num_rows else out_mat.T
+	return result

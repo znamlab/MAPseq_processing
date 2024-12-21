@@ -36,6 +36,25 @@ generate_region_table_across_samples -> get_acronymn
 Make sure to update the parameters.yml file in preprocessing_sequencing folder. A copy is then saved into the project folder, and you then update that one from then on.
 All the functions for preprocessing are in the preprocess_sequences.py script. Initially run 'start_splitting.py' in the '/scripts' folder, and each of the functions will run sequentially up to the point where you need to manually adjust parameters for UMI count cut-off and template switching cut-off. At this point, run the notebook in '/preprocessing_sequencing/notebooks/determine_UMI_cutoff_and_template_switching_thresholds.ipynb' to visualise UMI count distribution etc., adjust parameters, and run the next section to finish preprocessing.
 
+**preprocess_sequences function pipeline:**
+```
+ps.split_samples
+    |
+    v
+preprocess_reads  --> process_neuron_barcodes
+    |
+    v
+correct_all_umis (dep: process_neuron_barcodes) -> correct_umi_sequences
+    |
+    v       
+collate_error_correction_results (dep: correct_all_umis)
+    |
+    v
+join_tabs_and_split -> switch_analysis
+    |
+    v
+   END
+        
 ## Installation
 
 Should be easy enough. However the environment *must* be called `MAPseq_processing`.
