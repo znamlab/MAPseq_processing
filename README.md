@@ -54,7 +54,7 @@ join_tabs_and_split -> switch_analysis
     |
     v
    END
-        
+```        
 ## Installation
 
 Should be easy enough. However the environment *must* be called `MAPseq_processing`.
