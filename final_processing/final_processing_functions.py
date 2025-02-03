@@ -21,6 +21,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 from allensdk.core.mouse_connectivity_cache import MouseConnectivityCache
 import yaml
 from random import sample, randint, shuffle
+from concurrent.futures import ProcessPoolExecutor
 
 
 def find_adjacent_samples(ROI_array, samples_to_look, parameters_path):
@@ -633,7 +634,7 @@ def generate_shuffle_population(
         mice(list): list of mice you want to analyse
         proj_folder: path to folder where the mice datasets are (e.g. "/camp/lab/znamenskiyp/home/shared/projects/turnerb_A1_MAPseq")
     """
-    num_shuf_chunk = 3000
+    num_shuf_chunk = 1000
     number_jobs = int(total_number_shuffles / num_shuf_chunk)
     job_ids = []
     temp_shuffle_folder = pathlib.Path(proj_folder) / "temp_shuffles"
@@ -673,8 +674,8 @@ def generate_shuffle_population(
                 scripts_name=f"get_shuffled_pop_{new_job}",
             )
             job_ids.append(job_id)
-        job_ids = ",".join(map(str, job_ids))
         job_ids_adj = create_intermediate_jobs(job_ids)
+        job_ids_adj = ",".join(map(str, job_ids_adj))
         job = collate_all_shuffles(
             temp_shuffle_folder=str(temp_shuffle_folder),
             use_slurm=True,
@@ -696,8 +697,8 @@ def generate_shuffle_population(
                 scripts_name=f"get_shuffled_pop_sep_{new_job}",
             )
             job_ids.append(job_id)
-        job_ids = ",".join(map(str, job_ids))
         job_ids_adj = create_intermediate_jobs(job_ids)
+        job_ids_adj = ",".join(map(str, job_ids_adj))
         job = collate_all_shuffles(
             temp_shuffle_folder=str(temp_shuffle_folder),
             use_slurm=True,
@@ -734,14 +735,13 @@ def create_intermediate_jobs(job_ids, chunk_size=5000):
     # generate an intermediate job for each chunk of jobs
     intermediate_jobs = []
     for i, chunk in enumerate(job_id_chunks):
-        int_id = intermediate_job(number=i,
-                slurm_folder="/camp/home/turnerb/slurm_logs", job_dependency=chunk,
+        update_chunk = ",".join(map(str, chunk))
+        int_id = fpf.intermediate_job(number=i, use_slurm=True,
+                slurm_folder="/camp/home/turnerb/slurm_logs", job_dependency=update_chunk,
                 scripts_name=f"intermediate_job_{i}",
             )
         intermediate_jobs.append(int_id)
-    new_job_ids = ",".join(map(str, intermediate_jobs))
-
-    return new_job_ids
+    return intermediate_jobs
 
 @slurm_it(
     conda_env="MAPseq_processing",
@@ -757,14 +757,14 @@ def intermediate_job(number):
 @slurm_it(
     conda_env="MAPseq_processing",
     module_list=None,
-    slurm_options=dict(ntasks=1, time="16:00:00", mem="16G", partition="ncpu"),
+    slurm_options=dict(ntasks=3, time="18:00:00", mem="15G", partition="ncpu"),
 )
 def get_shuffles(
     mice,
     temp_shuffle_folder,
     iteration,
     proj_folder,
-    cubelet_cols, num_chunk =3000
+    cubelet_cols, num_chunk =1000
 ):
     """
     Function to provide a list of 1000 shuffles of your datasets.
@@ -784,9 +784,9 @@ def get_shuffles(
     probability_data = []
     conditional_prob_data = []
     neuron_numbers_data = []
-    corr_data = []
+    #corr_data = []
     binary_corr_data = []
-    cosine_sim_data = []
+    #cosine_sim_data = []
     cosine_sim_binary_data = []
     for i in range(num_shuffles):
         if len(mice) > 1:
@@ -799,9 +799,9 @@ def get_shuffles(
         tot_neurons = len(matrix)
         neuron_counts = matrix.astype(bool).sum(axis=0).to_dict()
         dict_to_add = {}
-        spearman_corr_dict = {}
-        binary_corr_dict = {}
-        cosine_dict = {}
+        #spearman_corr_dict = {}
+        #binary_corr_dict = {}
+        #cosine_dict = {}
         cosine_dict_binary = {}
         cond_prob_dict = {}
 
@@ -809,8 +809,8 @@ def get_shuffles(
             # calculate co-projection and correlations
             co_projection = (matrix[col_a].astype(bool) & matrix[col_b].astype(bool)).sum()
             dict_to_add[f"{col_a}, {col_b}"] = co_projection
-            spearman_corr_dict[f"{col_a}, {col_b}"] = matrix[col_a].corr(matrix[col_b], method="spearman")
-            binary_corr_dict[f"{col_a}, {col_b}"] = matrix[col_a].astype(bool).corr(matrix[col_b].astype(bool), method="spearman")
+            #spearman_corr_dict[f"{col_a}, {col_b}"] = matrix[col_a].corr(matrix[col_b], method="spearman")
+            #binary_corr_dict[f"{col_a}, {col_b}"] = matrix[col_a].astype(bool).corr(matrix[col_b].astype(bool), method="spearman")
 
             # calculate conditional probabilities
             col_a_project = matrix[matrix[col_a] > 0].astype(bool)
@@ -819,7 +819,7 @@ def get_shuffles(
             cond_prob_dict[f"{col_b}, {col_a}"] = col_b_project[col_a].mean() if not col_b_project.empty else np.nan
 
             # calculate cosine similarities in mean projections (normal and binarized (aka conditional prob))
-            for which_comp_type in ["norm", "binary"]:
+            for which_comp_type in ["binary"]:#["norm", "binary"]:
                 if which_comp_type == "binary":
                     neurons_1_av = (
                         matrix[matrix[col_a] > 0].astype(bool).mean(axis=0)
@@ -849,27 +849,27 @@ def get_shuffles(
         tot_neuron_num_cubelet.append(tot_neurons)
         probability_data.append(dict_to_add)
         neuron_numbers_data.append(neuron_counts)
-        corr_data.append(spearman_corr_dict)
-        binary_corr_data.append(binary_corr_dict)
-        cosine_sim_data.append(cosine_dict)
+        #corr_data.append(spearman_corr_dict)
+        #binary_corr_data.append(binary_corr_dict)
+        #cosine_sim_data.append(cosine_dict)
         cosine_sim_binary_data.append(cosine_dict_binary)
         conditional_prob_data.append(cond_prob_dict)
 
     # final concatenation outside loop
     probability_cubelet = pd.DataFrame(probability_data)
     neuron_numbers_cubelet = pd.DataFrame(neuron_numbers_data)
-    corr_cubelet = pd.DataFrame(corr_data)
-    corr_cubelet_binary = pd.DataFrame(binary_corr_data)
-    cosine_sim_matrix_cubelet = pd.DataFrame(cosine_sim_data)
+    #corr_cubelet = pd.DataFrame(corr_data)
+    #corr_cubelet_binary = pd.DataFrame(binary_corr_data)
+    #cosine_sim_matrix_cubelet = pd.DataFrame(cosine_sim_data)
     cosine_sim_matrix_cubelet_binary = pd.DataFrame(cosine_sim_binary_data)
     conditional_prob_cubelet = pd.DataFrame(conditional_prob_data)
     neuron_num_pandas = pd.DataFrame(tot_neuron_num_cubelet)   
     cosine_sim_matrix_cubelet_binary.to_pickle(
         f"{temp_shuffle_folder}/shuffled_cubelet_cosine_sim_binary_{iteration}.pkl"
     )
-    cosine_sim_matrix_cubelet.to_pickle(
-        f"{temp_shuffle_folder}/shuffled_cubelet_cosine_sim_{iteration}.pkl"
-    )
+    #cosine_sim_matrix_cubelet.to_pickle(
+    #    f"{temp_shuffle_folder}/shuffled_cubelet_cosine_sim_{iteration}.pkl"
+    #)
     probability_cubelet.to_pickle(
         f"{temp_shuffle_folder}/shuffled_cubelet_2_comb_{iteration}.pkl"
     )
@@ -879,16 +879,48 @@ def get_shuffles(
     neuron_numbers_cubelet.to_pickle(
         f"{temp_shuffle_folder}/shuffled__neuron_numbers_cubelet_{iteration}.pkl"
     )
-    corr_cubelet.to_pickle(
-        f"{temp_shuffle_folder}/shuffled_corr_cubelet_{iteration}.pkl"
-    )
-    corr_cubelet_binary.to_pickle(
-        f"{temp_shuffle_folder}/shuffled_corr_cubelet_binary_{iteration}.pkl"
-    )
+    #corr_cubelet.to_pickle(
+    #    f"{temp_shuffle_folder}/shuffled_corr_cubelet_{iteration}.pkl"
+    #)
+    #corr_cubelet_binary.to_pickle(
+    #    f"{temp_shuffle_folder}/shuffled_corr_cubelet_binary_{iteration}.pkl"
+    #)
     neuron_num_pandas.to_pickle(
             f"{temp_shuffle_folder}/total_neuron_numbers_cubelet_{iteration}.pkl"
         )
 
+def process_shuffles(mouse, proj_folder, num_shuffles):
+    """Helper function to process shuffles for a single mouse"""
+    homog_across_cubelet_dict = {}
+    parameters_path = f"{proj_folder}/{mouse}/Sequencing"
+    parameters = load_parameters(directory=parameters_path)
+    sequencing_directory = pathlib.Path(
+        "".join(
+            [
+                parameters["PROCESSED_DIR"],
+                "/",
+                parameters["PROJECT"],
+                "/",
+                parameters["MOUSE"],
+                "/Sequencing",
+            ]
+        )
+    )
+    barcodes_across_sample = pd.read_pickle(
+        sequencing_directory / "A1_barcodes_thresholded.pkl"
+    )
+    print(f"finished generating area matrix for {mouse}")
+    
+    for i in range(num_shuffles):
+        homog_across_cubelet_dict[i] = homog_across_cubelet(
+            parameters_path=parameters_path,
+            barcode_matrix=barcodes_across_sample,
+            cortical=True,
+            shuffled=True,
+            binary=True,
+            IT_only=True,
+        )
+    return mouse, homog_across_cubelet_dict
 
 def get_shuffled_mouse_populations(mice, proj_folder, num_shuffles=3000):
     """
@@ -898,37 +930,60 @@ def get_shuffled_mouse_populations(mice, proj_folder, num_shuffles=3000):
     """
     warnings.filterwarnings("ignore")
     combined_dict_cubelet = {}
-    for num, mouse in enumerate(mice):
-        homog_across_cubelet_dict = {}
-        parameters_path = f"{proj_folder}/{mouse}/Sequencing"
-        parameters = load_parameters(directory=parameters_path)
-        sequencing_directory = pathlib.Path(
-            "".join(
-                [
-                    parameters["PROCESSED_DIR"],
-                    "/",
-                    parameters["PROJECT"],
-                    "/",
-                    parameters["MOUSE"],
-                    "/Sequencing",
-                ]
-            )
+    
+    # Use ProcessPoolExecutor for parallel processing
+    with ProcessPoolExecutor() as executor:
+        results = executor.map(
+            process_shuffles, 
+            mice, 
+            [proj_folder] * len(mice), 
+            [num_shuffles] * len(mice)
         )
-        barcodes_across_sample = pd.read_pickle(
-            sequencing_directory / "A1_barcodes_thresholded.pkl"
-        )
-        print(f"finished generating area matrix for {mouse}")
-        for i in range(num_shuffles):
-            homog_across_cubelet_dict[i] = homog_across_cubelet(
-            parameters_path=parameters_path,
-            barcode_matrix=barcodes_across_sample,
-            cortical=True,
-            shuffled=True,
-            binary=True,
-            IT_only=True,
-        )
-        combined_dict_cubelet[mouse] = homog_across_cubelet_dict
+        
+        for mouse, homog_across_cubelet_dict in results:
+            combined_dict_cubelet[mouse] = homog_across_cubelet_dict
+    
     return combined_dict_cubelet
+
+# def get_shuffled_mouse_populations(mice, proj_folder, num_shuffles=3000):
+#     """
+#     Function to get shuffles of each dataframe for each mouse
+#     Returns:
+#     dictionaries of shuffled dataframes
+#     """
+#     warnings.filterwarnings("ignore")
+#     combined_dict_cubelet = {}
+#     for num, mouse in enumerate(mice):
+#         homog_across_cubelet_dict = {}
+#         parameters_path = f"{proj_folder}/{mouse}/Sequencing"
+#         parameters = load_parameters(directory=parameters_path)
+#         sequencing_directory = pathlib.Path(
+#             "".join(
+#                 [
+#                     parameters["PROCESSED_DIR"],
+#                     "/",
+#                     parameters["PROJECT"],
+#                     "/",
+#                     parameters["MOUSE"],
+#                     "/Sequencing",
+#                 ]
+#             )
+#         )
+#         barcodes_across_sample = pd.read_pickle(
+#             sequencing_directory / "A1_barcodes_thresholded.pkl"
+#         )
+#         print(f"finished generating area matrix for {mouse}")
+#         for i in range(num_shuffles):
+#             homog_across_cubelet_dict[i] = homog_across_cubelet(
+#             parameters_path=parameters_path,
+#             barcode_matrix=barcodes_across_sample,
+#             cortical=True,
+#             shuffled=True,
+#             binary=True,
+#             IT_only=True,
+#         )
+#         combined_dict_cubelet[mouse] = homog_across_cubelet_dict
+#     return combined_dict_cubelet
 
 @slurm_it(
     conda_env="MAPseq_processing",
@@ -1060,7 +1115,7 @@ def get_shuffles_mice_sep(
     module_list=None,
     slurm_options=dict(ntasks=1, time="24:00:00", mem="100G", partition="ncpu"),
 )
-def collate_all_shuffles(temp_shuffle_folder, mice_sep, mice):
+def collate_all_shuffles(temp_shuffle_folder, mice_sep, mice, overwrite=False):
     """
     Function to combine the shuffle population tables
     Args:
@@ -1072,10 +1127,10 @@ def collate_all_shuffles(temp_shuffle_folder, mice_sep, mice):
         "shuffled_cubelet_conditional_prob_",
         "shuffled_cubelet_2_comb_",
         "shuffled__neuron_numbers_cubelet_",
-        "shuffled_corr_cubelet_binary_",
-        "shuffled_corr_cubelet_",
+        #"shuffled_corr_cubelet_binary_",
+        #"shuffled_corr_cubelet_",
         "shuffled_cubelet_cosine_sim_binary_",
-        "shuffled_cubelet_cosine_sim_",
+       # "shuffled_cubelet_cosine_sim_",
         "total_neuron_numbers_cubelet_",
     ]
     path_to_look = pathlib.Path(temp_shuffle_folder)
@@ -1093,12 +1148,25 @@ def collate_all_shuffles(temp_shuffle_folder, mice_sep, mice):
         all_tables = []
         for f in all_files:
             all_tables.append(pd.read_pickle(f))
+        if not all_tables:  
+            continue
         all_tables = pd.concat(all_tables)
-        all_tables.to_pickle(f"{str(new_folder)}/{file_start}_collated.pkl")
-        list_all = os.listdir(path_to_look)
-        for file_path in list_all:
-            if file_path.startswith(file_start):
-                os.remove(path_to_look / file_path)
+        # if not all_tables.empty:  # only proceed if there are files to collate
+        #     all_tables = pd.concat(all_tables)
+        save_path = new_folder / f"{file_start}_collated.pkl"
+        if not overwrite:
+            counter = 1
+            while save_path.exists():
+                counter += 1
+                save_path = new_folder / f"{file_start}_collated_{counter}.pkl"
+        all_tables.to_pickle(str(save_path))
+        for f in all_files:
+            os.remove(f)
+        # all_tables.to_pickle(f"{str(new_folder)}/{file_start}_collated_1.pkl")
+        # list_all = os.listdir(path_to_look)
+        # for file_path in list_all:
+        #     if file_path.startswith(file_start):
+        #         os.remove(path_to_look / file_path)
 
 
 @slurm_it(
