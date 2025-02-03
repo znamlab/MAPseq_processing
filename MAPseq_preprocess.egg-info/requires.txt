@@ -1,8 +1,0 @@
-numpy
-matplotlib
-scikit-learn
-flexiznam@ git+ssh://git@github.com/znamlab/flexiznam.git
-opencv-python
-bg_atlasapi
-seaborn
-znamutils@ git+ssh://git@github.com/znamlab/znamutils.git
