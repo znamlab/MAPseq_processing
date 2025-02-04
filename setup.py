@@ -21,6 +21,8 @@ setup(
         "seaborn",
         "znamutils @ git+ssh://git@github.com/znamlab/znamutils.git",
         "umi_tools",
-        "yaml",
+        "pyyaml",
+        "pynrrd",
+        "allensdk",
     ],
 )
