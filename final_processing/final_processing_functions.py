@@ -636,7 +636,7 @@ def generate_shuffle_population(
         mice(list): list of mice you want to analyse
         proj_folder: path to folder where the mice datasets are (e.g. "/camp/lab/znamenskiyp/home/shared/projects/turnerb_A1_MAPseq")
     """
-    num_shuf_chunk = 1000
+    num_shuf_chunk = 500
     number_jobs = int(total_number_shuffles / num_shuf_chunk)
     job_ids = []
     temp_shuffle_folder = Path(proj_folder) / "temp_shuffles"
@@ -1017,7 +1017,7 @@ def get_shuffled_mouse_populations(mice, proj_folder, num_shuffles=3000):
     slurm_options=dict(ntasks=1, time="12:00:00", mem="16G", partition="ncpu"),
 )
 def get_shuffles_mice_sep(
-    mice, temp_shuffle_folder, iteration, proj_folder, cubelet_cols, num_shuffles=3000
+    mice, temp_shuffle_folder, iteration, proj_folder, cubelet_cols, num_shuffles=1000
 ):
     """
     Function to provide a list of 1000 shuffles of your datasets. Different to get_shuffles function in that we don't concat the mice together
@@ -1035,18 +1035,18 @@ def get_shuffles_mice_sep(
         probability_data = []
         conditional_prob_data = []
         neuron_numbers_data = []
-        corr_data = []
-        binary_corr_data = []
-        cosine_sim_data = []
+        #corr_data = []
+        #binary_corr_data = []
+        #cosine_sim_data = []
         cosine_sim_binary_data = []
         for i in range(num_shuffles):
-            matrix = combined_dict_cubelet[mouse][i][common_columns_cubelet]
+            matrix = mouse_cubelet_dict[mouse][i][common_columns_cubelet]
             tot_neurons = len(matrix)
             neuron_counts = matrix.astype(bool).sum(axis=0).to_dict()
             dict_to_add = {}
-            spearman_corr_dict = {}
-            binary_corr_dict = {}
-            cosine_dict = {}
+            #spearman_corr_dict = {}
+            #binary_corr_dict = {}
+            #cosine_dict = {}
             cosine_dict_binary = {}
             cond_prob_dict = {}
 
@@ -1056,14 +1056,14 @@ def get_shuffles_mice_sep(
                     matrix[col_a].astype(bool) & matrix[col_b].astype(bool)
                 ).sum()
                 dict_to_add[f"{col_a}, {col_b}"] = co_projection
-                spearman_corr_dict[f"{col_a}, {col_b}"] = matrix[col_a].corr(
-                    matrix[col_b], method="spearman"
-                )
-                binary_corr_dict[f"{col_a}, {col_b}"] = (
-                    matrix[col_a]
-                    .astype(bool)
-                    .corr(matrix[col_b].astype(bool), method="spearman")
-                )
+                # spearman_corr_dict[f"{col_a}, {col_b}"] = matrix[col_a].corr(
+                #     matrix[col_b], method="spearman"
+                # )
+                # binary_corr_dict[f"{col_a}, {col_b}"] = (
+                #     matrix[col_a]
+                #     .astype(bool)
+                #     .corr(matrix[col_b].astype(bool), method="spearman")
+                # )
 
                 # calculate conditional probabilities
                 col_a_project = matrix[matrix[col_a] > 0].astype(bool)
@@ -1076,7 +1076,7 @@ def get_shuffles_mice_sep(
                 )
 
                 # calculate cosine similarities in mean projections (normal and binarized (aka conditional prob))
-                for which_comp_type in ["norm", "binary"]:
+                for which_comp_type in ['binary']:#["norm", "binary"]:
                     if which_comp_type == "binary":
                         neurons_1_av = (
                             matrix[matrix[col_a] > 0].astype(bool).mean(axis=0)
@@ -1115,27 +1115,27 @@ def get_shuffles_mice_sep(
             tot_neuron_num_cubelet.append(tot_neurons)
             probability_data.append(dict_to_add)
             neuron_numbers_data.append(neuron_counts)
-            corr_data.append(spearman_corr_dict)
-            binary_corr_data.append(binary_corr_dict)
-            cosine_sim_data.append(cosine_dict)
+            #corr_data.append(spearman_corr_dict)
+            #binary_corr_data.append(binary_corr_dict)
+            #cosine_sim_data.append(cosine_dict)
             cosine_sim_binary_data.append(cosine_dict_binary)
             conditional_prob_data.append(cond_prob_dict)
 
         # final concatenation outside loop
         probability_cubelet = pd.DataFrame(probability_data)
         neuron_numbers_cubelet = pd.DataFrame(neuron_numbers_data)
-        corr_cubelet = pd.DataFrame(corr_data)
-        corr_cubelet_binary = pd.DataFrame(binary_corr_data)
-        cosine_sim_matrix_cubelet = pd.DataFrame(cosine_sim_data)
+        #corr_cubelet = pd.DataFrame(corr_data)
+        #corr_cubelet_binary = pd.DataFrame(binary_corr_data)
+        #cosine_sim_matrix_cubelet = pd.DataFrame(cosine_sim_data)
         cosine_sim_matrix_cubelet_binary = pd.DataFrame(cosine_sim_binary_data)
         conditional_prob_cubelet = pd.DataFrame(conditional_prob_data)
         neuron_num_pandas = pd.DataFrame(tot_neuron_num_cubelet)
         cosine_sim_matrix_cubelet_binary.to_pickle(
             f"{temp_shuffle_folder}/shuffled_cubelet_cosine_sim_binary_{mouse}_{iteration}.pkl"
         )
-        cosine_sim_matrix_cubelet.to_pickle(
-            f"{temp_shuffle_folder}/shuffled_cubelet_cosine_sim_{mouse}_{iteration}.pkl"
-        )
+        # cosine_sim_matrix_cubelet.to_pickle(
+        #     f"{temp_shuffle_folder}/shuffled_cubelet_cosine_sim_{mouse}_{iteration}.pkl"
+        # )
         probability_cubelet.to_pickle(
             f"{temp_shuffle_folder}/shuffled_cubelet_2_comb_{mouse}_{iteration}.pkl"
         )
@@ -1145,12 +1145,12 @@ def get_shuffles_mice_sep(
         neuron_numbers_cubelet.to_pickle(
             f"{temp_shuffle_folder}/shuffled__neuron_numbers_cubelet_{mouse}_{iteration}.pkl"
         )
-        corr_cubelet.to_pickle(
-            f"{temp_shuffle_folder}/shuffled_corr_cubelet_{mouse}_{iteration}.pkl"
-        )
-        corr_cubelet_binary.to_pickle(
-            f"{temp_shuffle_folder}/shuffled_corr_cubelet_binary_{mouse}_{iteration}.pkl"
-        )
+        # corr_cubelet.to_pickle(
+        #     f"{temp_shuffle_folder}/shuffled_corr_cubelet_{mouse}_{iteration}.pkl"
+        # )
+        # corr_cubelet_binary.to_pickle(
+        #     f"{temp_shuffle_folder}/shuffled_corr_cubelet_binary_{mouse}_{iteration}.pkl"
+        # )
         neuron_num_pandas.to_pickle(
             f"{temp_shuffle_folder}/total_neuron_numbers_cubelet_{mouse}_{iteration}.pkl"
         )
