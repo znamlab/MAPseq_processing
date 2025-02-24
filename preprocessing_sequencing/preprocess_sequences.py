@@ -1070,3 +1070,22 @@ def barcode_matching(sorting_directory):
 
     print("finito")
     barcodes_across_sample.to_pickle(sorting_dir / "barcodes_across_sample.pkl")
+
+@slurm_it(
+    conda_env="MAPseq_processing",
+    module_list=None,
+    slurm_options=dict(ntasks=1, time="12:00:00", mem="50G", partition="ncpu"),
+)
+def combine_tables_for_supp_fig(mice, proj_path):
+    """Function to combining all raw tables for plotting supp fig on template switching"""
+    switching_dict = {}
+    for mouse in mice:
+        parameters_path = pathlib.Path(f"{proj_path}/{mouse}/Sequencing")
+        #parameters = ps.load_parameters(directory=parameters_path)
+        dir_path = pathlib.Path(parameters_path)
+        switching_dict[mouse] = combine_switch_tables(
+        template_sw_directory=dir_path / "template_switching/analysed_chunks"
+    )
+    #combine switching table for both mice
+    switching_tab = pd.concat([switching_dict[key] for key in mice])
+    switching_tab.to_pickle(proj_path + "/switching_tab_combined.pkl")
