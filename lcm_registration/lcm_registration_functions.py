@@ -947,8 +947,8 @@ def generate_region_table_across_samples(parameters_path):
     annotation = allen_anno[0]
     roi_numbers = np.unique(roi_array)[1:]
     voxel_volume = (
-        25 #10**3
-    )  # Voxel volume in cubic micrometers (assuming 10um resolution)
+        25 **3
+    )  # Voxel volume in cubic micrometers (assuming 25um resolution)
 
     roi_volumes = []
     roi_regions = []
