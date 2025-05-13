@@ -15,11 +15,11 @@ import itertools
 from allensdk.core.mouse_connectivity_cache import MouseConnectivityCache
 import os
 from sklearn.metrics.pairwise import cosine_similarity
-from allensdk.core.mouse_connectivity_cache import MouseConnectivityCache
 import yaml
 from random import sample, shuffle
 from concurrent.futures import ProcessPoolExecutor
 from flexiznam.config import PARAMETERS
+import subprocess
 
 
 def find_adjacent_samples(ROI_array, samples_to_look, parameters_path):
@@ -278,7 +278,7 @@ def homog_across_cubelet(
     CT_PT_only=False,
     IT_only=False,
     area_threshold=0.1,
-    binary=False,
+    binary=False, remove_AUDp_vis_cub=False,
 ):
     """
     Function to output a matrix of homogenous across areas, looking only at cortical samples
@@ -353,6 +353,12 @@ def homog_across_cubelet(
         lcm_directory=lcm_directory,
         area_threshold=area_threshold,
     )
+    if remove_AUDp_vis_cub ==True:
+        visual_areas = ['VISli','VISpor', 'VISpl', 'VISl', 'VISp', 'VISal', 'VISam', 'VISpm', 'VISa', 'VISrl']
+        frac = areas_only_grouped.div(areas_only_grouped.sum(axis=1), axis=0)
+        frac_filtered = frac.loc[(frac[visual_areas].gt(0).any(axis=1)) & (frac['AUDp'] > 0.1)].index
+        barcodes_across_sample.drop(columns=frac_filtered, inplace=True)
+        areas_only_grouped = areas_only_grouped.drop(index=frac_filtered, errors='ignore') 
     zero_cols = areas_only_grouped.index[
         (areas_only_grouped == 0).all(axis=1, skipna=True)
     ].tolist()  # added as i've increased the threshold for testing
@@ -636,7 +642,7 @@ def generate_shuffle_population(
         mice(list): list of mice you want to analyse
         proj_folder: path to folder where the mice datasets are (e.g. "/camp/lab/znamenskiyp/home/shared/projects/turnerb_A1_MAPseq")
     """
-    num_shuf_chunk = 500
+    num_shuf_chunk = 200
     number_jobs = int(total_number_shuffles / num_shuf_chunk)
     job_ids = []
     temp_shuffle_folder = Path(proj_folder) / "temp_shuffles"
@@ -663,56 +669,194 @@ def generate_shuffle_population(
         common_columns_cubelet = list(common_columns_cubelet)
     elif len(mice) == 1:
         common_columns_cubelet = combined_dict_cubelet[mouse].columns
-    if mice_sep == False:
-        for new_job in range(number_jobs):
-            job_id = get_shuffles(
-                mice=mice,
-                temp_shuffle_folder=str(temp_shuffle_folder),
-                iteration=new_job,
-                proj_folder=proj_folder,
-                cubelet_cols=common_columns_cubelet,
-                num_chunk=num_shuf_chunk,
-                use_slurm=True,
-                slurm_folder="/camp/home/turnerb/slurm_logs",
-                scripts_name=f"get_shuffled_pop_{new_job}",
-            )
-            job_ids.append(job_id)
-        job_ids_adj = create_intermediate_jobs(job_ids)
-        job_ids_adj = ",".join(map(str, job_ids_adj))
-        job = collate_all_shuffles(
+    for new_job in range(number_jobs):
+        kwargs = {
+                "mice": mice,
+                "temp_shuffle_folder": str(temp_shuffle_folder),
+                "iteration": new_job,
+                "proj_folder": proj_folder,
+                "cubelet_cols": common_columns_cubelet,
+                "use_slurm": True,
+                "slurm_folder": "/camp/home/turnerb/slurm_logs",
+                "scripts_name": f"get_shuffled_pop{'_sep' if mice_sep else ''}_{new_job}"
+            }
+        if mice_sep:
+            kwargs["num_shuffles"] = num_shuf_chunk
+            job_id = get_shuffles_mice_sep(**kwargs)
+        else:
+            kwargs["num_chunk"] = num_shuf_chunk
+            job_id = get_shuffles(**kwargs)
+        job_ids.append(job_id)
+    job_ids_adj = ":".join(map(str, job_ids))
+    job=collate_all_shuffles(
             temp_shuffle_folder=str(temp_shuffle_folder),
             use_slurm=True,
             slurm_folder="/camp/home/turnerb/slurm_logs",
             job_dependency=job_ids_adj,
             mice=mice,
-            mice_sep=False,
+            mice_sep=mice_sep,
+            scripts_name="collating_shuffled_pop",
         )
-    elif mice_sep == True:
-        for new_job in range(number_jobs):
-            job_id = get_shuffles_mice_sep(
-                mice=mice,
-                temp_shuffle_folder=str(temp_shuffle_folder),
-                iteration=new_job,
-                proj_folder=proj_folder,
-                cubelet_cols=common_columns_cubelet,
-                use_slurm=True,
-                num_shuffles=num_shuf_chunk,
-                slurm_folder="/camp/home/turnerb/slurm_logs",
-                scripts_name=f"get_shuffled_pop_sep_{new_job}",
-            )
-            job_ids.append(job_id)
-        job_ids_adj = create_intermediate_jobs(job_ids)
-        job_ids_adj = ",".join(map(str, job_ids_adj))
-        job = collate_all_shuffles(
+    print(f'sent collating job {job}')
+    #run check to re-run jobs if any failed
+    # check_and_run_missing_scripts(prefix="shuffled__neuron_numbers_cubelet", total= number_jobs, mice = mice, temp_shuffle_folder=str(temp_shuffle_folder), mice_sep=mice_sep, use_slurm=True,
+    #     slurm_folder="/camp/home/turnerb/slurm_logs", job_dependency=job_ids_adj,)
+    
+
+@slurm_it(
+    conda_env="MAPseq_processing",
+    module_list=None,
+    slurm_options=dict(ntasks=1, time="1:00:00", mem="1G", partition="ncpu"),
+)
+def check_and_run_missing_scripts(total, mice, temp_shuffle_folder, mice_sep, prefix= 'shuffled__neuron_numbers_cubelet', path_to_jobs='/camp/home/turnerb/slurm_logs'):
+    """Function to check that all the scripts have run for shuffle population, and to run the missing jobs"""
+    missing = []
+    job_ids = []
+    script_name = "get_shuffled_pop_"
+    if mice_sep:
+        script_name = f"{script_name}sep_"
+    for i in range(total):
+        filename = f"{prefix}_{i}.pkl"
+        if mice_sep:
+            mouse_to_look = mice[0]
+            filename = f"{prefix}_{mouse_to_look}_{i}.pkl"
+        filepath = os.path.join(temp_shuffle_folder, filename)
+        if not os.path.isfile(filepath):
+            missing.append(i)
+
+    if not missing:
+        print("All files are present.")
+        collate_all_shuffles(
             temp_shuffle_folder=str(temp_shuffle_folder),
             use_slurm=True,
-            slurm_folder="/camp/home/turnerb/slurm_logs",
+            slurm_folder=path_to_jobs,
+            mice=mice,
+            mice_sep=mice_sep,
+            scripts_name="collating_shuffled_pop",
+        )
+    else:
+        print(f"Missing files: {missing}")
+        for number in missing:
+            new_script_name = f"{path_to_jobs}/{script_name}{number}.sh"
+            try:
+                print(f"Running script: {script_name}")
+                result = subprocess.run(
+                    ["sbatch", new_script_name],
+                    check=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True
+                )
+                # Parse SLURM job ID from output
+                output = result.stdout.strip()
+                if "Submitted batch job" in output:
+                    job_id = output.split()[-1]
+                    job_ids.append(job_id)
+                    print(f"Submitted {new_script_name} as job {job_id}")
+                else:
+                    print(f"Unexpected sbatch output: {output}")
+            except subprocess.CalledProcessError as e:
+                print(f"Failed to submit {new_script_name}: {e.stderr.strip()}")
+            except subprocess.CalledProcessError as e:
+                print(f"Failed to run {new_script_name}: {e}")
+        job_ids_adj = ":".join(map(str, job_ids))
+        collate_all_shuffles(
+            temp_shuffle_folder=str(temp_shuffle_folder),
+            use_slurm=True,
+            slurm_folder=path_to_jobs,
             job_dependency=job_ids_adj,
             mice=mice,
-            mice_sep=True,
-            scripts_name="collating_shuffled_pop_sep_mice",
+            mice_sep=mice_sep,
+            scripts_name="collating_shuffled_pop",
         )
-    print(f"collate_all_shuffles= {job}")
+
+    
+# def generate_shuffle_population(
+#     mice, proj_folder, total_number_shuffles, mice_sep=False
+# ):
+#     """
+#     Function to generate a population of random barcode shuffles within lcm based on the mice you provide
+#     Args:
+#         mice(list): list of mice you want to analyse
+#         proj_folder: path to folder where the mice datasets are (e.g. "/camp/lab/znamenskiyp/home/shared/projects/turnerb_A1_MAPseq")
+#     """
+#     num_shuf_chunk = 200
+#     number_jobs = int(total_number_shuffles / num_shuf_chunk)
+#     job_ids = []
+#     temp_shuffle_folder = Path(proj_folder) / "temp_shuffles"
+#     temp_shuffle_folder.mkdir(parents=True, exist_ok=True)
+#     combined_dict_cubelet = {}
+#     for mouse in mice:
+#         parameters_path = f"/camp/lab/znamenskiyp/home/shared/projects/turnerb_A1_MAPseq/{mouse}/Sequencing"
+#         barcodes = pd.read_pickle(f"{parameters_path}/A1_barcodes_thresholded.pkl")
+#         combined_dict_cubelet[mouse] = homog_across_cubelet(
+#             parameters_path=parameters_path,
+#             barcode_matrix=barcodes,
+#             cortical=True,
+#             shuffled=False,
+#             binary=True,
+#             IT_only=True,
+#         )
+#     if len(mice) > 1:
+#         common_columns_cubelet = set(combined_dict_cubelet[mice[0]].columns)
+#         for mouse in mice[1:]:
+#             common_columns_cubelet = common_columns_cubelet.intersection(
+#                 combined_dict_cubelet[mouse].columns
+#             )
+
+#         common_columns_cubelet = list(common_columns_cubelet)
+#     elif len(mice) == 1:
+#         common_columns_cubelet = combined_dict_cubelet[mouse].columns
+#     if mice_sep == False:
+#         for new_job in range(number_jobs):
+#             job_id = get_shuffles(
+#                 mice=mice,
+#                 temp_shuffle_folder=str(temp_shuffle_folder),
+#                 iteration=new_job,
+#                 proj_folder=proj_folder,
+#                 cubelet_cols=common_columns_cubelet,
+#                 num_chunk=num_shuf_chunk,
+#                 use_slurm=True,
+#                 slurm_folder="/camp/home/turnerb/slurm_logs",
+#                 scripts_name=f"get_shuffled_pop_{new_job}",
+#             )
+#             job_ids.append(job_id)
+#         #job_ids_adj = create_intermediate_jobs(job_ids)
+#         job_ids_adj = ",".join(map(str, job_ids))
+#         job = collate_all_shuffles(
+#             temp_shuffle_folder=str(temp_shuffle_folder),
+#             use_slurm=True,
+#             slurm_folder="/camp/home/turnerb/slurm_logs",
+#             job_dependency=job_ids_adj,
+#             mice=mice,
+#             mice_sep=False,
+#         )
+#     elif mice_sep == True:
+#         for new_job in range(number_jobs):
+#             job_id = get_shuffles_mice_sep(
+#                 mice=mice,
+#                 temp_shuffle_folder=str(temp_shuffle_folder),
+#                 iteration=new_job,
+#                 proj_folder=proj_folder,
+#                 cubelet_cols=common_columns_cubelet,
+#                 use_slurm=True,
+#                 num_shuffles=num_shuf_chunk,
+#                 slurm_folder="/camp/home/turnerb/slurm_logs",
+#                 scripts_name=f"get_shuffled_pop_sep_{new_job}",
+#             )
+#             job_ids.append(job_id)
+#         #job_ids_adj = create_intermediate_jobs(job_ids)
+#         job_ids_adj = ":".join(map(str, job_ids))
+#         job = collate_all_shuffles(
+#             temp_shuffle_folder=str(temp_shuffle_folder),
+#             use_slurm=True,
+#             slurm_folder="/camp/home/turnerb/slurm_logs",
+#             job_dependency=job_ids_adj,
+#             mice=mice,
+#             mice_sep=True,
+#             scripts_name="collating_shuffled_pop_sep_mice",
+#         )
+#     print(f"collate_all_shuffles= {job}")
 
 
 def create_intermediate_jobs(job_ids, chunk_size=5000):
@@ -770,7 +914,7 @@ def intermediate_job(number):
     slurm_options=dict(ntasks=3, time="18:00:00", mem="15G", partition="ncpu"),
 )
 def get_shuffles(
-    mice, temp_shuffle_folder, iteration, proj_folder, cubelet_cols, num_chunk=1000
+    mice, temp_shuffle_folder, iteration, proj_folder, cubelet_cols, num_chunk=200
 ):
     """
     Function to provide a list of 1000 shuffles of your datasets.
@@ -946,7 +1090,7 @@ def process_shuffles(mouse, proj_folder, num_shuffles):
     return mouse, homog_across_cubelet_dict
 
 
-def get_shuffled_mouse_populations(mice, proj_folder, num_shuffles=3000):
+def get_shuffled_mouse_populations(mice, proj_folder, num_shuffles):
     """
     Function to get shuffles of each dataframe for each mouse
     Returns:
@@ -1017,7 +1161,7 @@ def get_shuffled_mouse_populations(mice, proj_folder, num_shuffles=3000):
     slurm_options=dict(ntasks=1, time="12:00:00", mem="16G", partition="ncpu"),
 )
 def get_shuffles_mice_sep(
-    mice, temp_shuffle_folder, iteration, proj_folder, cubelet_cols, num_shuffles=1000
+    mice, temp_shuffle_folder, iteration, proj_folder, cubelet_cols, num_shuffles
 ):
     """
     Function to provide a list of 1000 shuffles of your datasets. Different to get_shuffles function in that we don't concat the mice together
@@ -1161,7 +1305,7 @@ def get_shuffles_mice_sep(
     module_list=None,
     slurm_options=dict(ntasks=1, time="24:00:00", mem="100G", partition="ncpu"),
 )
-def collate_all_shuffles(temp_shuffle_folder, mice_sep, mice, overwrite=False):
+def collate_all_shuffles(temp_shuffle_folder, mice_sep, mice, overwrite=True):
     """
     Function to combine the shuffle population tables
     Args:
@@ -1190,7 +1334,8 @@ def collate_all_shuffles(temp_shuffle_folder, mice_sep, mice, overwrite=False):
     elif mice_sep == False:
         files_to_look = file_start_names
     for file_start in files_to_look:
-        all_files = path_to_look.glob(f"{file_start}*.pkl")
+        #all_files = path_to_look.glob(f"{file_start}*.pkl")
+        all_files = list(path_to_look.glob(f"{file_start}*.pkl"))
         all_tables = []
         for f in all_files:
             all_tables.append(pd.read_pickle(f))
@@ -1200,12 +1345,14 @@ def collate_all_shuffles(temp_shuffle_folder, mice_sep, mice, overwrite=False):
         # if not all_tables.empty:  # only proceed if there are files to collate
         #     all_tables = pd.concat(all_tables)
         save_path = new_folder / f"{file_start}_collated.pkl"
+        
         if not overwrite:
             counter = 1
             while save_path.exists():
                 counter += 1
                 save_path = new_folder / f"{file_start}_collated_{counter}.pkl"
         all_tables.to_pickle(str(save_path))
+        print(f'finished saving {file_start}')
         for f in all_files:
             os.remove(f)
         # all_tables.to_pickle(f"{str(new_folder)}/{file_start}_collated_1.pkl")
@@ -2253,3 +2400,27 @@ def get_cosine_sim_of_probs(matrix, cols):
             cosine_sim_matrix.loc[col_2, col] = cosine_sim[0][0]
     np.fill_diagonal(cosine_sim_matrix.values, np.nan)
     return cosine_sim_matrix
+
+def add_prefix_to_index(df, prefix):
+    df = df.copy()  
+    df.index = [f"{prefix}_{idx}" for idx in df.index]
+    return df
+
+def get_common_columns(mice, combined_dict, key, cortex):
+    """Function to get common areas across mouse barcode dictionaries. If cortex ==True, only take cortical areas"""
+    mcc = MouseConnectivityCache(resolution=25)
+    structure_tree = mcc.get_structure_tree()
+    common_columns = set.intersection(*[
+    set(combined_dict[k][key].columns) for k in mice
+])
+    #let's make sure that all the areas are cortical (areas such as HPF are unintentially side bits of cubelets and never main target, and more likely registration errors)
+    if cortex:
+        common_cols_cortex = []
+        for col in common_columns:
+            if col == 'Contra':
+                common_cols_cortex.append(col)
+            if col not in ['Contra', 'OB']:
+                structure = structure_tree.get_structures_by_acronym([col])
+                if 315 in structure[0]['structure_id_path']:
+                    common_cols_cortex.append(col)
+    return common_cols_cortex if cortex else common_columns
