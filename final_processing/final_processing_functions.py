@@ -2374,12 +2374,12 @@ def get_cond_prob(matrix, columns, index):
     matrix = matrix[columns]
     for col in index:
         for area in columns:
-            if col == area:
-                conditional_prob.loc[col, area] = np.nan
-            else:
-                conditional_prob.loc[col, area] = (
-                    matrix[matrix[col] > 0].astype(bool).astype(int)[area].mean()
-                )
+            # if col == area:
+            #     conditional_prob.loc[col, area] = np.nan
+            # else:
+            conditional_prob.loc[col, area] = (
+                matrix[matrix[col] > 0].astype(bool).astype(int)[area].mean()
+            )
     return conditional_prob
 
 
@@ -2398,7 +2398,7 @@ def get_cosine_sim_of_probs(matrix, cols):
             cosine_sim = cosine_similarity(bl, bl_2)
             cosine_sim_matrix.loc[col, col_2] = cosine_sim[0][0]
             cosine_sim_matrix.loc[col_2, col] = cosine_sim[0][0]
-    np.fill_diagonal(cosine_sim_matrix.values, np.nan)
+    # np.fill_diagonal(cosine_sim_matrix.values, np.nan)
     return cosine_sim_matrix
 
 def add_prefix_to_index(df, prefix):
