@@ -55,6 +55,11 @@ join_tabs_and_split -> switch_analysis
     v
    END
 ```        
+
+**Final processing of MAPseq datasets**
+The output of preprocess_sequences gives a series of .csv files corresponding to barcodes in each sample. To create a dataframe with barcode counts across samples for each barcode, perform various QCs, and selection of only neurons with soma in particular brain areas (in our case A1), run the barcode_match_qc_final_process.ipynb. Make sure you have adjusted the "general_analysis_parameters.yaml" in the final_processing folder to contain your specific file paths. Finally, to perform area assignment and analysis as in the figures, run the .ipynb notebooks corresponding to each figure.
+
+
 ## Installation
 
 Should be easy enough. However the environment *must* be called `MAPseq_processing`.
