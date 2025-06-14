@@ -96,14 +96,28 @@ def get_area_volumes(barcode_table_cols, lcm_directory, area_threshold=0.1):
 
 def normalize_barcodes(barcodes):
     #since we have the soma barcode here, we normalise to 1 for the second max (non-som, max projection) value, then set the soma to 1
+    #edit: we now make it so max is 1
     normalized_barcodes = barcodes.copy().astype(float)
     for index, row in normalized_barcodes.iterrows():
-        max_val = row.max()  # Find the maximum value
-        # Exclude the maximum value from normalization
-        other_values_sum = row.sum() - max_val
-        if other_values_sum > 0:  # Avoid division by zero
-            normalized_barcodes.loc[index] = row / other_values_sum
-        normalized_barcodes.loc[index][row.idxmax()] = 1.0  # Set max value to 1
+        #max_val = row.max()
+        row_values = row.values
+        min_val = row_values.min()
+        sorted_vals = sorted(row_values)
+        unique_vals = sorted(set(row_values))
+        if len(unique_vals) < 2:
+            # if only one unique value (i.e. the soma) — set row to NaN - shouldn't be the case
+            normalized_barcodes.loc[index] = np.nan
+            continue
+        second_max = unique_vals[-2]
+        denominator = second_max - min_val
+        assert min_val == 0, f"Expected min to be 0, got {min_val}"
+        assert second_max > 0, f"Expected second max > 0, got {second_max}"
+        normalized_row = (row_values - min_val) / denominator
+        normalized_barcodes.loc[index] = normalized_row
+        #other_values_sum = row.sum() - max_val
+        # if other_values_sum > 0:  
+        #     normalized_barcodes.loc[index] = row / other_values_sum
+        #normalized_barcodes.loc[index][row.idxmax()] = 1.0  
     return normalized_barcodes
 
 def homog_across_cubelet(
@@ -213,8 +227,9 @@ def homog_across_cubelet(
         barcodes = send_to_shuffle(barcodes=barcodes)
     if binary and shuffled:
         barcodes = send_for_curveball_shuff(barcodes = barcodes) #note this is only in final processing functions script
-    total_projection_strength = np.sum(barcodes, axis=1)  # changed as normalised before
-    barcodes = barcodes / total_projection_strength[:, np.newaxis]
+    # total_projection_strength = np.sum(barcodes, axis=1)  # changed as normalised before
+    # barcodes = barcodes / total_projection_strength[:, np.newaxis]
+    #removed normalisation step, as we now want to normalise later by range
     bc_matrix = np.matmul(barcodes, weighted_frac_matrix)
     bc_matrix = pd.DataFrame(
         data=bc_matrix,
@@ -226,6 +241,14 @@ def homog_across_cubelet(
     # bc_matrix = bc_matrix/vol_matrix
     bc_matrix = bc_matrix.dropna(axis=1, how="all")
     bc_matrix = bc_matrix.loc[~(bc_matrix == 0).all(axis=1)]
+    # if areas_to_scale is not None:
+    #     bc_matrix = bc_matrix[areas_to_scale]
+    row_min    = bc_matrix.min(axis=1)                         
+    row_range  = bc_matrix.max(axis=1) - row_min               
+    row_range.replace(0, np.nan, inplace=True)                
+    bc_matrix  = bc_matrix.sub(row_min,   axis=0)             
+    bc_matrix  = bc_matrix.div(row_range, axis=0)    #subtract min and divide by range so max = 1   
+    # bc_matrix = (bc_matrix-bc_matrix.min())/(bc_matrix.max()-bc_matrix.min()) #we normalise so max is 1
     # bc_matrix =bc_matrix.reset_index(drop=True)
     if binary:
         bc_matrix = bc_matrix.astype(bool).astype(int)

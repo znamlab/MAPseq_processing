@@ -206,3 +206,13 @@ def combine_broad_regions(dataframe, regions_to_add):
     df_result = pd.DataFrame(summed_data)
     df_result = df_result.loc[(df_result != 0).any(axis=1)]
     return df_result
+
+def convert_to_exp(num, sig_fig=2):
+    mant, exp = f"{num:.{sig_fig}E}".split("E")
+    if round(float(mant)) == 1:
+        exp_add = exp
+        symbol_add = '='
+    else:
+        exp_add = int(exp)+1
+        symbol_add = '<'
+    return symbol_add, exp_add

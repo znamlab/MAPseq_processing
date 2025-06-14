@@ -375,8 +375,8 @@ def homog_across_cubelet(
         barcodes = send_to_shuffle(barcodes=barcodes)
     if binary and shuffled:
         barcodes = send_for_curveball_shuff(barcodes=barcodes)
-    total_projection_strength = np.sum(barcodes, axis=1)  # changed as normalised before
-    barcodes = barcodes / total_projection_strength[:, np.newaxis]
+    #total_projection_strength = np.sum(barcodes, axis=1)  # changed as normalised before
+    #barcodes = barcodes / total_projection_strength[:, np.newaxis] changed as normalised to density instead
     bc_matrix = np.matmul(barcodes, weighted_frac_matrix)
     bc_matrix = pd.DataFrame(
         data=bc_matrix,
@@ -388,6 +388,13 @@ def homog_across_cubelet(
     # bc_matrix = bc_matrix/vol_matrix
     bc_matrix = bc_matrix.dropna(axis=1, how="all")
     bc_matrix = bc_matrix.loc[~(bc_matrix == 0).all(axis=1)]
+    row_min    = bc_matrix.min(axis=1)                         
+    row_range  = bc_matrix.max(axis=1) - row_min               
+    row_range.replace(0, np.nan, inplace=True)                
+
+    bc_matrix  = bc_matrix.sub(row_min,   axis=0)             
+    bc_matrix  = bc_matrix.div(row_range, axis=0)    #subtract min and divide by range so max = 1          
+    #bc_matrix  = bc_matrix.fillna(0)  
     # bc_matrix =bc_matrix.reset_index(drop=True)
     if binary:
         bc_matrix = bc_matrix.astype(bool).astype(int)
@@ -608,12 +615,19 @@ def homog_across_area(
         for i in range(binarised_bc_matrix.shape[0]):
             mdl.fit(
                 areas_matrix, binarised_bc_matrix[i, :]
-            )  # Fit logistic regression to each row (barcode)
-            coef_list.append(mdl.coef_[0])  # Store the coefficients for this barcode
+            )  # fit logistic regression to each row (barcode)
+            coef_list.append(mdl.coef_[0])  # store the coefficients for this barcode
         barcodes_homog = pd.DataFrame(coef_list, columns=areas_only_grouped.columns)
         barcodes_homog[barcodes_homog < 0] = (
             0  # this is not ideal - using sparse logistic regression, there isn't an option to contrain coef to be non-negative
         )
+        row_min    = barcodes_homog.min(axis=1)                         
+        row_range  = barcodes_homog.max(axis=1) - row_min               
+        row_range.replace(0, np.nan, inplace=True)                
+
+        barcodes_homog  = barcodes_homog.sub(row_min,   axis=0)             
+        barcodes_homog  = barcodes_homog.div(row_range, axis=0)    #subtract min and divide by range so max = 1          
+        barcodes_homog  = barcodes_homog.fillna(0)  
     return barcodes_homog
 
 
@@ -2047,7 +2061,7 @@ def area_is_main(
     if shuffled and binary:
         barcodes = send_for_curveball_shuff(barcodes=barcodes)
     total_projection_strength = np.sum(barcodes, axis=1)  # changed as normalised before
-    barcodes = barcodes / total_projection_strength[:, np.newaxis]
+    #barcodes = barcodes / total_projection_strength[:, np.newaxis] #we don't normalise this anymore
     bc_matrix = np.matmul(barcodes, weighted_frac_matrix)
     bc_matrix = pd.DataFrame(
         data=bc_matrix,
@@ -2056,6 +2070,12 @@ def area_is_main(
     )
     bc_matrix = bc_matrix.dropna(axis=1, how="all")
     bc_matrix = bc_matrix.loc[:, (bc_matrix != 0).any(axis=0)]
+    row_min    = bc_matrix.min(axis=1)                         
+    row_range  = bc_matrix.max(axis=1) - row_min               
+    row_range.replace(0, np.nan, inplace=True)                
+
+    bc_matrix  = bc_matrix.sub(row_min,   axis=0)             
+    bc_matrix  = bc_matrix.div(row_range, axis=0)  
     if binary:
         bc_matrix = bc_matrix.astype(bool).astype(int)
     return bc_matrix.fillna(0)
