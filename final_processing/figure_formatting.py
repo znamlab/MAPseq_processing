@@ -1,11 +1,22 @@
+import matplotlib
 from matplotlib import pyplot as plt
 from matplotlib import rcParams
 import matplotlib.font_manager as fm
 import pandas as pd
 import sys
+from final_processing.MAPseq_data_processing import FitResult
+from matplotlib.lines import Line2D
+import colorsys
 
-rcParams['font.sans-serif'] = "Arial"
-rcParams['font.family'] = "Arial"
+# rcParams['font.sans-serif'] = "Arial"
+# rcParams['font.family'] = "Arial"
+
+def set_font_params(gen_parameters):
+    # matplotlib.rcParams['font.sans-serif'] = gen_parameters['font']
+    matplotlib.rcParams['font.family'] = gen_parameters['font']
+    matplotlib.rcParams['font.size'] = gen_parameters['font_size']
+    matplotlib.rcParams['svg.fonttype'] = 'none'
+    matplotlib.rcParams["pdf.fonttype"] = 42
 
 def print_sys():
     print(sys.executable, flush=True) 
@@ -216,3 +227,46 @@ def convert_to_exp(num, sig_fig=2):
         exp_add = int(exp)+1
         symbol_add = '<'
     return symbol_add, exp_add
+
+def plot_errorbars(ax, distances, means, errors, color_map):
+    for area in means.index:
+        ax.errorbar(distances[area], means[area], yerr=errors[area],
+                    fmt='o', color='black',
+                    mfc=color_map.get(area, 'lightgray'),
+                    mec=color_map.get(area, 'lightgray'),
+                    ms=2, elinewidth=0.5, capsize=0.5)
+
+def plot_exponential_fit(ax, fit: FitResult):
+    ax.plot(fit.fitted_x, fit.fitted_y, color='black',
+            lw=0.5, ls='dotted', label='Exponential fit\nℓ = '
+            f'{1/fit.params[1]:.0f} µm')
+
+def style_figure_exp_fits(fig, axes, color_map, convert_dict, font_size):
+    axes[0].set_ylabel('Projection probability', fontsize=font_size)
+    axes[1].set_ylabel('Normalised projection density', fontsize=font_size)
+    for ax in axes:
+        ax.set_xticks([0, 2000, 4000])
+
+    labels = [convert_dict.get(a, a) for a in color_map]
+    dummy = [Line2D([], [], ls='none') for _ in labels]
+    legend = fig.legend(dummy, labels, loc='center left',
+                        bbox_to_anchor=(0.4, 0.5), frameon=False,
+                        handlelength=0, handletextpad=0.1,
+                        fontsize=font_size, prop={'family': 'Arial'})
+    for txt, area in zip(legend.get_texts(), color_map):
+        txt.set_color(color_map[area])
+
+def adjust_color(color, amount=1.0):
+    """function to change the change the lightness of a specified color in the plot"""
+    try:
+        c = matplotlib.colors.cnames[color]
+    except:
+        c = color
+    r, g, b = matplotlib.colors.to_rgb(c)
+    h, l, s = colorsys.rgb_to_hls(r, g, b)
+    l = max(min(l * amount, 1.0), 0.0)
+    r, g, b = colorsys.hls_to_rgb(h, l, s)
+    return (r, g, b)
+    
+
+
