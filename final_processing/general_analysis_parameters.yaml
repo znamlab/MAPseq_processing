@@ -1,10 +1,10 @@
 #general_analysis_parameters:
 MICE: [FIAA45.6a, FIAA45.6d, FIAA55.4d]
 fig_saving_path: /nemo/lab/znamenskiyp/home/shared/projects/turnerb_A1_MAPseq/figs
-proj_path: /camp/lab/znamenskiyp/home/shared/projects/turnerb_A1_MAPseq
+proj_path: /camp/lab/znamenskiyp/home/shared/projects/turnerb_A1_MAPseq/processed_A1_MAPseq_datasets
 SLURM_DIR: /camp/home/turnerb/slurm_logs
 number_shuffles: 100000 #size of shuffle population for analysis
 #figure_plotting_parameters:
 font: Arial
 font_size: 6
-HVA_cols: [VISp, VISpor, VISli, VISal, VISl, VISpl, VISpm, VISrl, VISam, VISa]
+HVA_cols: [ VISpl, VISpor, VISli, VISl, VISal, VISrl, VISa, VISam, VISpm,  VISp]
