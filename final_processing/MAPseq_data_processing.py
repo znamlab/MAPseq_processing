@@ -29,7 +29,7 @@ import final_processing.helper_functions as hf
 from scipy.stats import norm
 
 
-def samples_to_areas(mice, proj_path):
+def samples_to_areas(mice, proj_path, shuffled=False, binary=False):
     """function to generate a dictionary of with mice as keys for neuron barcodes across areas (from neuron barcodes across samples)"""
     combined_dict = {}
     for num, mouse in enumerate(mice):
@@ -42,7 +42,8 @@ def samples_to_areas(mice, proj_path):
             barcode_matrix=barcodes,
             cortical=True,
             IT_only=True,
-            shuffled=False,
+            shuffled=shuffled,
+            binary=binary,
         )
         new_dict["max_counts"] = barcodes.max(axis=1)
         combined_dict[mouse] = new_dict
@@ -844,90 +845,6 @@ def individual_area_probabilities(
     return pval_df, df, results_popuplation_dict
 
 
-# def individual_area_probabilities(
-#     gen_parameters, combined_dict, AP_position_dict_list_combined
-# ):
-#     """function to use to assess the probabability of projecting to individual visual areas given neuron somas are in particular AP position.
-#     significance of relationship is assessed using logistic regression"""
-#     mice = gen_parameters["MICE"]
-#     area_dic = {}
-#     all_mice_combined = pd.concat(
-#         [
-#             combined_dict[k]["homogenous_across_cubelet"][
-#                 get_common_columns(mice=mice, combined_dict=combined_dict, cortex=False)
-#             ]
-#             for k in mice
-#         ]
-#     )
-#     # for area in all_mice_combined.columns:
-#     #     which_mice = pd.DataFrame(columns=["mice"], index=all_mice_combined.index)
-#     #     for k in mice:
-#     #         which_mice.loc[combined_dict[k]["homogenous_across_cubelet"].index, "mice"] = k
-#     #         area_df = pd.DataFrame(columns=["mouse", "AP_position", "proj_freq"])
-#     #         for mouse in mice:
-#     #             mouse_ind = which_mice[which_mice["mice"] == mouse].index
-#     #             ap_corr_mouse = AP_position_dict_list_combined.loc[mouse_ind]["AP_position"]
-#     #             mouse_bcs = all_mice_combined.loc[mouse_ind].astype(bool).astype(int)
-#     #             for AP in ap_corr_mouse.unique():
-#     #                 indices = ap_corr_mouse[ap_corr_mouse == AP]
-#     #                 if len(indices) < 5:
-#     #                     continue
-#     #                 else:
-#     #                     freq = mouse_bcs.loc[indices.index][area].mean()
-#     #                     new_row = pd.DataFrame(
-#     #                         {
-#     #                             "mouse": [mouse],
-#     #                             "AP_position": [AP * 25],
-#     #                             "proj_freq": [freq],
-#     #                         }
-#     #                     )
-#     #                     area_df = pd.concat([area_df, new_row], ignore_index=True)
-#     #             area_dic[area] = area_df
-#     which_mice = pd.DataFrame(columns=["mice"], index=all_mice_combined.index)
-#     for k in mice:
-#         which_mice.loc[combined_dict[k]["homogenous_across_cubelet"].index, "mice"] = k
-#     logistic_reg_area_dict = {}
-#     visual_areas = gen_parameters["HVA_cols"]
-#     for mouse in mice:
-#         mouse_ind = which_mice[which_mice["mice"] == mouse].index
-#         ap_corr_mouse = AP_position_dict_list_combined.loc[mouse_ind]["AP_position"]
-#         mouse_bcs = (
-#             all_mice_combined.loc[mouse_ind][visual_areas]
-#             .astype(bool)
-#             .astype(int)
-#             .copy()
-#         )
-#         for AP in ap_corr_mouse.unique():
-#             indices = ap_corr_mouse[ap_corr_mouse == AP]
-#             if len(indices) < 5:
-#                 continue
-#             else:
-#                 logistic_reg_area_dict[AP] = mouse_bcs.loc[indices.index]
-#                 logistic_reg_area_dict[AP]["mouse"] = mouse
-#                 logistic_reg_area_dict[AP]["AP_position"] = AP * 25
-
-#     combined_df = pd.concat(logistic_reg_area_dict.values(), axis=0, ignore_index=False)
-
-#     results_popuplation_dict = {}
-#     df = combined_df.melt(
-#         id_vars=["mouse", "AP_position"], var_name="Area", value_name="Projection"
-#     )
-#     pval_df = pd.DataFrame(index=visual_areas, columns=["p_value", "OR"])
-#     for area in visual_areas:
-#         df_area = df[df["Area"] == area]
-#         model = smf.logit("Projection ~ AP_position + mouse", data=df_area).fit(
-#             disp=False
-#         )
-#         results = model.summary2().tables[1]
-#         results_popuplation_dict[area] = smf.logit(
-#             "Projection ~ AP_position", data=df_area
-#         ).fit(disp=False)
-#         pval_df.loc[area, "p_value"] = results.loc["AP_position", "P>|z|"]
-#         pval_df.loc[area, "OR"] = np.exp(results.loc["AP_position", "Coef."])
-#     pval_df["p_value_corrected"] = pval_df["p_value"] * len(visual_areas)
-#     return pval_df, df, results_popuplation_dict
-
-
 def get_ML_position(sample_id: str, ml_dict: dict):
     """return pre-computed ML coordinate for sample (or None)."""
     return ml_dict.get(sample_id, np.nan)
@@ -1584,3 +1501,63 @@ def get_area_sample_corr(area_dictionary, mice):
         common_area_mouse_mat = area_dictionary[mouse]["random_key"][common_cols_cortex]
         corr_dict[mouse] = common_area_mouse_mat.corr(method="spearman")
     return corr_dict
+
+
+def compute_actual_expected_ratio_matrix(df):
+    cols = df.columns
+    ratio_matrix = pd.DataFrame(index=cols, columns=cols, dtype=float)
+
+    for col1, col2 in itertools.combinations(cols, 2):
+        a = df[col1].astype(bool)
+        b = df[col2].astype(bool)
+        actual = (a & b).sum() / len(df)
+        expected = (a.sum() / len(df)) * (b.sum() / len(df))
+        ratio = actual / expected if expected > 0 else float("nan")
+        ratio_matrix.loc[col1, col2] = ratio
+        ratio_matrix.loc[col2, col1] = ratio
+    np.fill_diagonal(ratio_matrix.values, np.nan)
+    return ratio_matrix
+
+
+def compare_shuffle_approaches(mice, proj_path, all_mice_combined):
+    """function to compare different shuffle approaches - one using the curveball algorithm to account for variable labelling efficiency"""
+    shuf_combined_dict = samples_to_areas(
+        mice=mice, proj_path=proj_path, shuffled=True, binary=False
+    )
+    shuf_all_mice_combined = pd.concat(
+        [
+            shuf_combined_dict[k]["homogenous_across_cubelet"][
+                get_common_columns(
+                    mice=mice, combined_dict=shuf_combined_dict, cortex=True
+                )
+            ]
+            for k in mice
+        ]
+    )
+    curve_shuf_combined_dict = samples_to_areas(
+        mice=mice, proj_path=proj_path, shuffled=True, binary=True
+    )
+    curve_shuf_all_mice_combined = pd.concat(
+        [
+            curve_shuf_combined_dict[k]["homogenous_across_cubelet"][
+                get_common_columns(
+                    mice=mice, combined_dict=curve_shuf_combined_dict, cortex=True
+                )
+            ]
+            for k in mice
+        ]
+    )
+    titles = ["observed", "shuffled", "curveball_shuffled"]
+    effect_dict = {}
+    for i, matrix in enumerate(
+        [all_mice_combined, shuf_all_mice_combined, curve_shuf_all_mice_combined]
+    ):
+        effect_dict[titles[i]] = compute_actual_expected_ratio_matrix(matrix)
+    observed_over_shuff = {}
+    observed_over_shuff["norm_shuff"] = (np.log2(effect_dict["observed"] + 1e-3)) - (
+        np.log2(effect_dict["shuffled"] + 1e-3)
+    )
+    observed_over_shuff["curveball_shuffled"] = (
+        np.log2(effect_dict["observed"] + 1e-3)
+    ) - (np.log2(effect_dict["curveball_shuffled"] + 1e-3))
+    return observed_over_shuff

@@ -338,9 +338,9 @@ def plot_mean_flatmap(
         im, ax=ax, label="Normalised projection density", fraction=0.03, pad=0.04
     )
     for l, boundary_coords in bf_left_boundaries.items():
-        ax.plot(*boundary_coords.T, c="white", lw=0.2)
+        ax.plot(*boundary_coords.T, c="white", lw=0.3)
     for l, boundary_coords in bf_right_boundaries.items():
-        ax.plot(*boundary_coords.T, c="white", lw=0.2)
+        ax.plot(*boundary_coords.T, c="white", lw=0.3)
     all_soma_coords = pd.DataFrame(soma_coordinates_2d)
     coords_y = all_soma_coords["2d_coords_y"].to_numpy()
     coords_x = all_soma_coords["2d_coords_x"].to_numpy()
@@ -348,9 +348,9 @@ def plot_mean_flatmap(
         coords_x,
         coords_y,
         c="white",
-        s=2,
+        s=1.5,
         edgecolors="black",
-        linewidths=0.1,
+        linewidths=0.15,
         label="Soma centroids",
     )
     plt.legend()
@@ -657,9 +657,9 @@ def plot_AP_soma_cubelet_flatmap(
     cbar.set_label("Mean soma AP position (µm)", fontsize=6, family="Arial")
     cbar.ax.tick_params(labelsize=6, labelrotation=0)
     for l, boundary_coords in bf_left_boundaries.items():
-        ax.plot(*boundary_coords.T, c="white", lw=0.2)
+        ax.plot(*boundary_coords.T, c="white", lw=0.3)
     for l, boundary_coords in bf_right_boundaries.items():
-        ax.plot(*boundary_coords.T, c="white", lw=0.2)
+        ax.plot(*boundary_coords.T, c="white", lw=0.3)
     coords_y = which_soma["2d_coords_y"].to_numpy()
     coords_x = which_soma["2d_coords_x"].to_numpy()
     colors = which_soma["AP_position"].to_numpy()
@@ -670,8 +670,9 @@ def plot_AP_soma_cubelet_flatmap(
         cmap=cmap,
         vmin=colors.min(),
         vmax=clean_volume_max.max(),
-        s=2,
-        edgecolors="none",
+        s=1.5,
+        edgecolors="black",
+        linewidths=0.15,
         label="Soma centroids",
     )
     plt.legend()
