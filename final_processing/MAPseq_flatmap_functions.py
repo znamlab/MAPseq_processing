@@ -164,9 +164,10 @@ def plot_bulk_flatmaps_indiv(
         cmap.set_bad(color=[0.3, 0.3, 0.3, 1])
         im = ax.imshow(all_mice_flat[mouse], cmap=cmap)
         ax.axis("off")
-        fig.colorbar(
+        cbar = fig.colorbar(
             im, ax=ax, label="Log$_{10}$(barcode counts)", fraction=0.03, pad=0.04
         )
+        cbar.set_label("Log$_{10}$(barcode counts)", rotation=270)
         for k, boundary_coords in bf_left_boundaries.items():
             ax.plot(*boundary_coords.T, c="white", lw=0.2)
         for k, boundary_coords in bf_right_boundaries.items():
@@ -334,9 +335,10 @@ def plot_mean_flatmap(
     im = ax.imshow(to_look_masked, cmap=cmap, norm=LogNorm())
     ax.axis("off")
 
-    fig.colorbar(
+    cbar = fig.colorbar(
         im, ax=ax, label="Normalised projection density", fraction=0.03, pad=0.04
     )
+    cbar.set_label("Log$_{10}$(barcode counts)", rotation=270)
     for l, boundary_coords in bf_left_boundaries.items():
         ax.plot(*boundary_coords.T, c="white", lw=0.3)
     for l, boundary_coords in bf_right_boundaries.items():
