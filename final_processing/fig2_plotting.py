@@ -381,6 +381,7 @@ def plot_projection_probability_by_area(
     num_bins=8,
     dist_only=False,
     include_pval=False,
+    supplementary_fig=False,
 ):
     """
     plot projection probability vs A-P position for each area in fig 2.
@@ -430,10 +431,16 @@ def plot_projection_probability_by_area(
     ax.fill_between(
         ap_grid, pred_df["ci_lower"], pred_df["ci_upper"], color=ci_color, alpha=0.3
     )
+
     if dist_only:
         xtitle = "Euclidean distance"
     else:
         xtitle = "Soma A-P position"
+        xtitle = xtitle if idx == total_axes - 1 else ""
+
+    if supplementary_fig:
+        xtitle = "Soma A-P position"
+        xtitle = xtitle if idx == 5 else ""
 
     if include_pval:
         ff.myPlotSettings_splitAxis(
@@ -463,24 +470,37 @@ def plot_projection_probability_by_area(
             fig=ax.figure,
             ax=ax,
             ytitle="",
-            xtitle=xtitle if idx == total_axes - 1 else "",
+            xtitle=xtitle,
             title="",
             axisColor="k",
             mySize=font_size,
         )
 
         print(f"p value for {area} is {pval:.2g}")
-        text_anchor = ("left", 0.05) if idx < 2 else ("right", 0.95)
-        ax.text(
-            text_anchor[1],
-            1,
-            convert_dict.get(area, area),
-            transform=ax.transAxes,
-            ha=text_anchor[0],
-            va="top",
-            fontsize=font_size,
-            color="black",
-        )
+        if supplementary_fig:
+            ax.text(
+                0.5,
+                1,
+                convert_dict.get(area, area),
+                transform=ax.transAxes,
+                ha="center",
+                va="top",
+                fontsize=font_size,
+                fontweight="bold",
+                color="black",
+            )
+        else:
+            text_anchor = ("left", 0.05) if idx < 2 else ("right", 0.95)
+            ax.text(
+                text_anchor[1],
+                1,
+                convert_dict.get(area, area),
+                transform=ax.transAxes,
+                ha=text_anchor[0],
+                va="top",
+                fontsize=font_size,
+                color="black",
+            )
     _, ymax = ax.get_ylim()
     rounded_ymax = round(ymax, 1)
     ax.set_ylim(0, rounded_ymax)
@@ -493,17 +513,26 @@ def plot_projection_probability_by_area(
 def plot_area_projection_probs(
     areas_to_plot,
     gen_parameters,
-    combined_dict,
-    AP_position_dict_list_combined,
+    # combined_dict,
+    # AP_position_dict_list_combined,
     fig,
     axes,
     include_dist_as_covariate=False,
     only_plot_distance=False,
     include_pval=False,
+    supplementary_fig=False,
 ):
     """
     plot projection probability vs A-P position for all areas specified in list in fig 2.
     """
+    mice = gen_parameters["MICE"]
+    combined_dict = mdp.samples_to_areas(
+        mice=mice, proj_path=gen_parameters["proj_path"]
+    )
+    (
+        AP_position_dict_list_combined,
+        AP_soma_VC_sample,
+    ) = mdp.compute_mean_soma_AP_positions(gen_parameters=gen_parameters)
     (
         pval_df,
         proj_by_ap_pos_df,
@@ -531,6 +560,7 @@ def plot_area_projection_probs(
                 total_axes=len(axes),
                 dist_only=only_plot_distance,
                 include_pval=include_pval,
+                supplementary_fig=supplementary_fig,
             )
     else:
         for idx, (ax, area) in enumerate(zip(axes, areas_to_plot)):
@@ -546,12 +576,13 @@ def plot_area_projection_probs(
                 idx=idx,
                 total_axes=len(axes),
                 dist_only=only_plot_distance,
+                supplementary_fig=supplementary_fig,
             )
-
+        x = 0.0 if supplementary_fig else 0.1
         fig.supylabel(
             "Projection probability",
             fontsize=gen_parameters["font_size"],
-            x=0.1,
+            x=x,
         )
     plt.tight_layout()
     plt.show()
@@ -778,7 +809,8 @@ def plot_supp_cond_prob_heatmaps(gen_parameters, axs, all_mice_combined):
             spine.set_linewidth(1)
 
         axs[number].set_ylabel("Cortical area", size=font_size)
-        axs[number].set_xlabel("Co-projection target", size=font_size)
+        if number == 2:
+            axs[number].set_xlabel("Co-projection target", size=font_size)
 
         cbar = axs[number].collections[0].colorbar
 
@@ -877,9 +909,24 @@ def plot_supp_cond_prob_heatmaps(gen_parameters, axs, all_mice_combined):
     cbar = plt.colorbar(sc, cax=cax, orientation="vertical")
     cbar.set_label("Signed\n$log_{10}$ p-value", fontsize=font_size)
     cbar.ax.tick_params(labelsize=font_size)
-    tick_locs = cbar.get_ticks()
-    cbar.set_ticks(tick_locs)
-    cbar.set_ticklabels([f"{int(abs(tick))}" for tick in tick_locs])
+    # tick_locs = cbar.get_ticks()
+    # cbar.set_ticks(tick_locs)
+    # cbar.set_ticklabels([f"{int(abs(tick))}" for tick in tick_locs])
+
+    vmax_val = norm.vmax
+    tick_pos = [-vmax_val, -2.5, 0, 2.5, vmax_val]
+    tick_pos = [t for t in tick_pos if norm.vmin <= t <= norm.vmax]
+    tick_labels = []
+    for t in tick_pos:
+        if abs(t) < 1e-6:
+            tick_labels.append("0")
+        elif abs(abs(t) - 2.5) < 1e-6:
+            tick_labels.append(f"{abs(t):.1f}")
+        else:
+            tick_labels.append("> 5")
+    cbar.set_ticks(tick_pos)
+    cbar.set_ticklabels(tick_labels)
+    cbar.ax.tick_params(labelsize=font_size)
 
 
 def heatmap_panel(ax, cbar_ax, data, font_size, title):
@@ -897,7 +944,7 @@ def heatmap_panel(ax, cbar_ax, data, font_size, title):
 
     ax.set_title(title, size=font_size * 1.1)
     ax.set_ylabel("VC area", size=font_size, rotation=0)
-    ax.yaxis.set_label_coords(-0.05, 1.05)
+    ax.yaxis.set_label_coords(-0.075, 1.05)
     ax.set_xlabel("Coprojection target", size=font_size, labelpad=15)
     x_categories = data.columns
     tick_positions = np.arange(len(data.columns)) + 0.5
@@ -967,7 +1014,7 @@ def effect_size_panel(
     ax.set_yticklabels(observed.index, fontsize=font_size)
     ax.invert_yaxis()
     ax.set_xlabel("Coprojection target", fontsize=font_size, labelpad=15)
-    ax.yaxis.set_label_coords(-0.05, 1.05)
+    ax.yaxis.set_label_coords(-0.075, 1.05)
     ax.set_ylabel(
         "VC area",
         fontsize=font_size,
@@ -1282,11 +1329,12 @@ def plot_corr_heatmap(gen_parameters):
     cbar.outline.set_linewidth(1)
 
 
-def plot_simulation(gen_parameters, axs):
-    eff_dict = hf.simulate_constant_vs_variable_labelling_efficiency()
-    all_values = np.concatenate([df.values.flatten() for df in eff_dict.values()])
-    vmin = np.nanmin(all_values)
-    vmax = np.nanmax(all_values)
+def plot_simulation(gen_parameters, axs, eff_dict, observed, vmin=None, vmax=None):
+    # eff_dict, observed = hf.simulate_constant_vs_variable_labelling_efficiency()
+    # all_values = np.concatenate([df.values.flatten() for df in eff_dict.values()])
+    # vmin = np.nanmin(all_values)
+    # vmax = np.nanmax(all_values)
+    titles = ["Simulation\nConstant efficiency", "Simulation\nVariable efficiency"]
     for i, title in enumerate(eff_dict.keys()):
         motif_df = eff_dict[title]
         sb.heatmap(
@@ -1299,7 +1347,7 @@ def plot_simulation(gen_parameters, axs):
             xticklabels=True,
             yticklabels=True,
         )
-        axs[i].set_title(title, size=gen_parameters["font_size"] * 1.1)
+        axs[i].set_title(titles[i], size=gen_parameters["font_size"])
         axs[i].tick_params(
             axis="y", which="major", labelsize=gen_parameters["font_size"], rotation=0
         )
@@ -1321,6 +1369,7 @@ def plot_simulation(gen_parameters, axs):
         cbar.set_label(
             "Log$_{2}$(observed/expected)", fontsize=gen_parameters["font_size"]
         )
+    return observed
 
 
 def plot_observed_shuffle_approach_comparison(gen_parameters, all_mice_combined, axs):
@@ -1330,7 +1379,10 @@ def plot_observed_shuffle_approach_comparison(gen_parameters, all_mice_combined,
     observed_over_shuff = mdp.compare_shuffle_approaches(
         mice, proj_path, all_mice_combined
     )
-    titles = ["Shuffled", "Curveball shuffled"]
+    titles = [
+        "Observed Data\nShuffle normalised",
+        "Observed Data\nCurveball shuffle normalised",
+    ]
     vis = gen_parameters["HVA_cols"]
     for title in observed_over_shuff.keys():
         new_mat = observed_over_shuff[title].loc[vis, vis]
@@ -1353,7 +1405,7 @@ def plot_observed_shuffle_approach_comparison(gen_parameters, all_mice_combined,
             xticklabels=True,
             yticklabels=True,
         )
-        axs[i].set_title(titles[i], size=gen_parameters["font_size"] * 1.1)
+        axs[i].set_title(titles[i], size=gen_parameters["font_size"])
         axs[i].tick_params(
             axis="y", which="major", labelsize=gen_parameters["font_size"], rotation=0
         )
@@ -1376,3 +1428,108 @@ def plot_observed_shuffle_approach_comparison(gen_parameters, all_mice_combined,
             "Effect size\nLog$_{2}$(observed/shuffled)",
             fontsize=gen_parameters["font_size"],
         )
+
+
+def plot_shuffle_comparison(
+    gen_parameters, norm_shuf_sub, curve_shuf_sub, axs, vmin=None, vmax=None
+):
+    """Code for plotting shuffling approach comparisons"""
+    shuf_dict = {
+        "Simulation\nShuffle normalised": norm_shuf_sub,
+        "Simulation\nCurveball shuffle normalised": curve_shuf_sub,
+    }
+    if vmin is None or vmax is None:
+        all_values = np.concatenate([df.values.ravel() for df in shuf_dict.values()])
+        vmin = np.nanmin(all_values)
+        vmax = np.nanmax(all_values)
+
+    for i, title in enumerate(shuf_dict.keys()):
+        motif_df = shuf_dict[title]
+        np.fill_diagonal(motif_df.values, np.nan)
+        sb.heatmap(
+            ax=axs[i],
+            data=motif_df,
+            cmap="coolwarm",
+            center=0,
+            vmin=vmin,
+            vmax=vmax,
+            xticklabels=True,
+            yticklabels=True,
+        )
+        axs[i].set_title(title, size=gen_parameters["font_size"])
+        axs[i].tick_params(
+            axis="y", which="major", labelsize=gen_parameters["font_size"], rotation=0
+        )
+        axs[i].tick_params(
+            axis="x", which="major", labelsize=gen_parameters["font_size"]
+        )
+        axs[i].set_xlabel("Target area B")
+        axs[i].set_ylabel("Target area A")
+        for _, spine in axs[i].spines.items():
+            spine.set_visible(True)
+            spine.set_color("black")
+            spine.set_linewidth(1)
+
+        cbar = axs[i].collections[0].colorbar
+        cbar.outline.set_visible(True)
+        cbar.outline.set_edgecolor("black")
+        cbar.outline.set_linewidth(1)
+        cbar.ax.tick_params(labelsize=gen_parameters["font_size"])
+        # if i > 0:
+        label = "Effect size\nLog$_{2}$(observed/shuffled)"
+        # else:
+        #     label = "Log$_{2}$(observed/expected)"
+        cbar.set_label(label, fontsize=gen_parameters["font_size"])
+
+
+def plot_all_sup_matrices(
+    gen_parameters, all_mice_combined, axes, n_neurons=100000, n_areas=10
+):
+    """
+    Plot matrices in  supplmentary fig. 3,
+    n_neurons and n_areas are number of neurons and areas for simulation
+    """
+    eff_dict, observed = hf.simulate_constant_vs_variable_labelling_efficiency(
+        n_neurons=n_neurons, n_areas=n_areas
+    )
+    norm_shuf_sub, curve_shuf_sub = mdp.perform_shuffle_motif_comp(
+        neurons_proj=observed
+    )
+    shuf_dict = {
+        "Shuffle normalised": norm_shuf_sub,
+        "Curveball shuffle normalised": curve_shuf_sub,
+    }
+    mice = gen_parameters["MICE"]
+    proj_path = gen_parameters["proj_path"]
+    observed_over_shuff = mdp.compare_shuffle_approaches(
+        mice, proj_path, all_mice_combined
+    )
+    vis = gen_parameters["HVA_cols"]
+    for k in list(observed_over_shuff.keys()):
+        new_mat = observed_over_shuff[k].loc[vis, vis]
+        new_mat = hf.convert_matrix_names(new_mat)
+        observed_over_shuff[k] = new_mat
+    all_vals = []
+    all_vals.extend([df.values.ravel() for df in eff_dict.values()])
+    all_vals.extend([df.values.ravel() for df in shuf_dict.values()])
+    all_vals.extend([df.values.ravel() for df in observed_over_shuff.values()])
+    all_vals = np.concatenate(all_vals)
+    vmin = np.nanmin(all_vals)
+    vmax = np.nanmax(all_vals)
+
+    plot_simulation(
+        gen_parameters=gen_parameters,
+        axs=axes[0:2],
+        eff_dict=eff_dict,
+        observed=observed,
+        vmin=vmin,
+        vmax=vmax,
+    )
+    plot_shuffle_comparison(
+        gen_parameters, norm_shuf_sub, curve_shuf_sub, axes[2:4], vmin=vmin, vmax=vmax
+    )
+    plot_observed_shuffle_approach_comparison(
+        gen_parameters=gen_parameters,
+        all_mice_combined=all_mice_combined,
+        axs=axes[4:6],
+    )

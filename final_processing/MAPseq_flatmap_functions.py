@@ -83,10 +83,10 @@ def make_dicts_of_mouse_3d_sample_rois(gen_parameters):
 
 
 def set_up_for_flatmaps(proj_path):
-    convert_to_flat_path = pathlib.Path(f"{proj_path}/additional_rq")
-    annotation_data = nrrd.read(f"{proj_path}/additional_rq/flatmap_butterfly.nrrd")
+    convert_to_flat_path = pathlib.Path(f"{proj_path}")
+    annotation_data = nrrd.read(f"{proj_path}/flatmap_butterfly.nrrd")
     labels_df = pd.read_csv(
-        f"{proj_path}/additional_rq/labelDescription_ITKSNAPColor.txt",
+        f"{proj_path}/labelDescription_ITKSNAPColor.txt",
         header=None,
         sep="\s+",
         index_col=0,
@@ -107,7 +107,7 @@ def set_up_for_flatmaps(proj_path):
         hemisphere="both",
         view_space_for_other_hemisphere="flatmap_butterfly",
     )
-    ref_anno = nrrd.read(f"{proj_path}/additional_rq/annotation_25.nrrd")
+    ref_anno = nrrd.read(f"{proj_path}/annotation_25.nrrd")
     allen_anno = np.array(ref_anno)
     annotation = allen_anno[0]
     return proj_top, bf_left_boundaries, bf_right_boundaries
@@ -167,12 +167,12 @@ def plot_bulk_flatmaps_indiv(
         cbar = fig.colorbar(
             im, ax=ax, label="Log$_{10}$(barcode counts)", fraction=0.03, pad=0.04
         )
-        cbar.set_label("Log$_{10}$(barcode counts)", rotation=270)
+        cbar.set_label("Log$_{10}$(barcode counts)", rotation=270, labelpad=10)
         for k, boundary_coords in bf_left_boundaries.items():
             ax.plot(*boundary_coords.T, c="white", lw=0.2)
         for k, boundary_coords in bf_right_boundaries.items():
             ax.plot(*boundary_coords.T, c="white", lw=0.2)
-        ax.set_title(f"Distribution of MAPseq counts for {mouse}")
+        ax.set_title(f"MAPseq counts {mouse}")
 
 
 def plot_bulk_allen_anterograde(
@@ -262,7 +262,7 @@ def get_source_2d_and_normalised_matrices(
         row_range = bc_matrix.max(axis=1) - row_min
         row_range.replace(0, np.nan, inplace=True)
 
-        bc_matrix = bc_matrix.sub(row_min, axis=0)
+        # bc_matrix = bc_matrix.sub(row_min, axis=0)
         bc_mat_normalised = bc_matrix.div(row_range, axis=0)
         normalised_bc_matrices[mouse] = bc_mat_normalised
         all_bcs_with_source = pd.read_pickle(
@@ -334,11 +334,10 @@ def plot_mean_flatmap(
     to_look_masked = np.where(to_look <= 0, np.nan, to_look)
     im = ax.imshow(to_look_masked, cmap=cmap, norm=LogNorm())
     ax.axis("off")
-
     cbar = fig.colorbar(
-        im, ax=ax, label="Normalised projection density", fraction=0.03, pad=0.04
+        im, ax=ax, label="Mean projection density", fraction=0.03, pad=0.04
     )
-    cbar.set_label("Log$_{10}$(barcode counts)", rotation=270)
+    cbar.set_label("Mean projection density", rotation=270)
     for l, boundary_coords in bf_left_boundaries.items():
         ax.plot(*boundary_coords.T, c="white", lw=0.3)
     for l, boundary_coords in bf_right_boundaries.items():
@@ -656,7 +655,10 @@ def plot_AP_soma_cubelet_flatmap(
     im = ax.imshow(to_look_masked, cmap=cmap, vmin=1500, vmax=clean_volume_max.max())
     ax.axis("off")
     cbar = fig.colorbar(im, ax=ax, fraction=0.03, pad=0.04)
-    cbar.set_label("Mean soma AP position (µm)", fontsize=6, family="Arial")
+    cbar.set_label(
+        "Mean soma AP position (µm)", fontsize=6, family="Arial", rotation=270
+    )
+
     cbar.ax.tick_params(labelsize=6, labelrotation=0)
     for l, boundary_coords in bf_left_boundaries.items():
         ax.plot(*boundary_coords.T, c="white", lw=0.3)
@@ -800,10 +802,10 @@ def homog_across_cubelet(
     row_min = bc_matrix.min(axis=1)
     row_range = bc_matrix.max(axis=1) - row_min
     row_range.replace(0, np.nan, inplace=True)
-    bc_matrix = bc_matrix.sub(row_min, axis=0)
+    # bc_matrix = bc_matrix.sub(row_min, axis=0)
     bc_matrix = bc_matrix.div(
         row_range, axis=0
-    )  # subtract min and divide by range so max = 1
+    )  # since min is always 0, dividing by range max = 1
     if binary:
         bc_matrix = bc_matrix.astype(bool).astype(int)
     return bc_matrix.fillna(0)
@@ -970,9 +972,11 @@ def plot_indiv_projections(
         )
 
         cbar.set_label(
-            "Normalised projection density", fontsize=font_size
+            "Normalised projection density",
+            fontsize=font_size,
+            rotation=270,
         )  # Previously "Normalised Counts/mm³"
-        cbar.ax.tick_params(labelsize=font_size)
+        cbar.ax.tick_params(labelsize=font_size * 0.9)
         cbar.locator = LogLocator(base=10)
         cbar.update_ticks()
         ax_bar = fig.add_subplot(gs[1, col])
@@ -1014,7 +1018,8 @@ def plot_indiv_projections(
         )
         if col == 0:
             ax_bar.set_ylabel(
-                "Normalised area\nprojection density", fontsize=font_size, labelpad=4
+                "Normalised area\nprojection density",
+                fontsize=font_size,
             )
         else:
             ax_bar.set_ylabel("")

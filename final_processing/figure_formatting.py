@@ -215,15 +215,16 @@ def myPlotSettings_splitAxis(fig, ax, ytitle, xtitle, title, axisColor="k", mySi
 #     plt.show()
 #     return fig
 
-# def combine_broad_regions(dataframe, regions_to_add):
-#     summed_data = {}
-#     for area, tubes in regions_to_add.items():
-#         valid_tubes = [tube for tube in tubes if tube in dataframe.columns]
-#         summed_data[area] = dataframe[valid_tubes].sum(axis=1)
 
-#     df_result = pd.DataFrame(summed_data)
-#     df_result = df_result.loc[(df_result != 0).any(axis=1)]
-#     return df_result
+def combine_broad_regions(dataframe, regions_to_add):
+    summed_data = {}
+    for area, tubes in regions_to_add.items():
+        valid_tubes = [tube for tube in tubes if tube in dataframe.columns]
+        summed_data[area] = dataframe[valid_tubes].sum(axis=1)
+
+    df_result = pd.DataFrame(summed_data)
+    df_result = df_result.loc[(df_result != 0).any(axis=1)]
+    return df_result
 
 
 def convert_to_exp(num, sig_fig=2):

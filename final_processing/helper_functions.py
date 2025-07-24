@@ -166,15 +166,17 @@ def get_stream_labels_and_colours():
     return colors_to_colour, stream_labels
 
 
-def simulate_constant_vs_variable_labelling_efficiency():
-    n_areas = 10
+def simulate_constant_vs_variable_labelling_efficiency(n_neurons, n_areas):
+    # n_areas = 10
     proj_prob = np.ones(n_areas) * 0.2
     titles = ["Uniform efficiency", "Variable efficiency"]
-    n_neurons = 100000
+    # n_neurons = 1000
     efficiency = np.random.rand(n_neurons)
     constant_efficiency = np.ones(n_neurons) * 0.5
     eff_dict = {}
-    for i, which_eff in enumerate([constant_efficiency, efficiency]):
+    for i, which_eff in enumerate(
+        [constant_efficiency, efficiency]
+    ):  # must be this order, as we want to returns neurons_proj for variable efficiency, used for another plot
         neurons_proj_prob = proj_prob[None, :] * which_eff[:, None]
         neurons_proj = (
             np.random.rand(n_neurons, n_areas) < neurons_proj_prob
@@ -193,4 +195,4 @@ def simulate_constant_vs_variable_labelling_efficiency():
                 motif_df.iloc[area_a, area_b] = np.log2(observed / expected)
         np.fill_diagonal(motif_df.values, np.nan)
         eff_dict[titles[i]] = motif_df
-    return eff_dict
+    return eff_dict, neurons_proj

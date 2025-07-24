@@ -27,6 +27,7 @@ from bg_atlasapi import BrainGlobeAtlas
 import statsmodels.formula.api as smf
 import final_processing.helper_functions as hf
 from scipy.stats import norm
+from statsmodels.stats.contrast import ContrastResults
 
 
 def samples_to_areas(mice, proj_path, shuffled=False, binary=False):
@@ -60,7 +61,7 @@ def homog_across_cubelet(
     area_threshold=0.1,
     binary=False,
     remove_AUDp_vis_cub=False,
-    run_externally=False,
+    run_externally=True,
 ):
     """
     Function to output a matrix of homogenous across areas, looking only at cortical samples
@@ -185,7 +186,7 @@ def homog_across_cubelet(
     row_range = bc_matrix.max(axis=1) - row_min
     row_range.replace(0, np.nan, inplace=True)
 
-    bc_matrix = bc_matrix.sub(row_min, axis=0)
+    # bc_matrix = bc_matrix.sub(row_min, axis=0)
     bc_matrix = bc_matrix.div(row_range, axis=0)
 
     if binary:
@@ -845,6 +846,116 @@ def individual_area_probabilities(
     return pval_df, df, results_popuplation_dict
 
 
+def pooled_area_probabilities(
+    gen_parameters,
+    combined_dict,
+    AP_position_dict_list_combined,
+    include_distance=True,  # keep distance as a covariate by default
+):
+    """
+    We perform logistic regression on all areas at the same time, therefore distance is given the same weight across all areas (rather than separate weights if individual)
+    """
+    bg_atlas = BrainGlobeAtlas("allen_mouse_25um", check_latest=False)
+    AP_positioning_dicts = get_AP_positioning_cubelets(
+        mice=gen_parameters["MICE"],
+        proj_path=gen_parameters["proj_path"],
+        HVA_cols=gen_parameters["HVA_cols"],
+        max_y_vis=np.nan,
+    )
+    mice = gen_parameters["MICE"]
+    visual_areas = gen_parameters["HVA_cols"]
+    all_mice_combined = pd.concat(
+        [
+            combined_dict[k]["homogenous_across_cubelet"][
+                get_common_columns(mice=mice, combined_dict=combined_dict, cortex=False)
+            ]
+            for k in mice
+        ]
+    )
+    which_mice = pd.Series(
+        {
+            idx: k
+            for k in mice
+            for idx in combined_dict[k]["homogenous_across_cubelet"].index
+        },
+        name="mouse",
+    ).to_frame()
+    AUDp_mask = get_area_mask(area_id=bg_atlas.structures["AUDp"]["id"])
+    contra_mask = get_contra_mask(AUDp_mask.shape)
+
+    centroids = {}
+    for area in visual_areas:
+        mask = get_area_mask(bg_atlas.structures[area]["id"]) * contra_mask
+        centroids[area] = np.argwhere(mask == 1).mean(axis=0)  # in voxels
+    logistic_reg_area_dict = {}
+    for mouse in mice:
+        mouse_ind = which_mice[which_mice["mouse"] == mouse].index
+        ap_corr_mouse = AP_position_dict_list_combined.loc[mouse_ind]["AP_position"]
+        mouse_bcs = (
+            all_mice_combined.loc[mouse_ind][visual_areas]
+            .astype(bool)
+            .astype(int)
+            .copy()
+        )
+
+        for AP in ap_corr_mouse.unique():
+            indices = ap_corr_mouse[ap_corr_mouse == AP]
+            if len(indices) < 5:
+                continue
+            neurons = mouse_bcs.loc[indices.index].copy()
+            neurons["mouse"] = mouse
+            neurons["AP_position"] = AP * 25  # since 25um voxel resolution
+            soma = AP_position_dict_list_combined[
+                AP_position_dict_list_combined["AP_position"] == AP
+            ][0].unique()[0]
+            coord = AP_positioning_dicts["mouse_dict_A1_source_coords"][mouse][soma]
+            neurons["source_sample_coord"] = [coord] * len(neurons)
+            logistic_reg_area_dict[(mouse, AP)] = neurons
+
+    combined_area_AP_proj_dict = pd.concat(
+        logistic_reg_area_dict.values(), axis=0, ignore_index=False
+    ).melt(
+        id_vars=["mouse", "AP_position", "source_sample_coord"],
+        var_name="Area",
+        value_name="Projection",
+    )
+    combined_area_AP_proj_dict["distance"] = combined_area_AP_proj_dict.apply(
+        lambda r: np.linalg.norm(r["source_sample_coord"] - centroids[r["Area"]]) * 25,
+        axis=1,
+    )
+
+    base_formula = "Projection ~ AP_position * C(Area) + C(Area) + C(mouse)"
+    if include_distance:
+        base_formula += " + distance"
+
+    model = smf.logit(base_formula, data=combined_area_AP_proj_dict).fit(disp=False)
+    ref_area = combined_area_AP_proj_dict["Area"].unique().min()
+    ref_AP_param = "AP_position"
+
+    pval_df = pd.DataFrame(index=visual_areas, columns=["p_value", "OR"])
+
+    for area in visual_areas:
+        if area == ref_area:
+            coef = model.params[ref_AP_param]
+            pval = model.pvalues[ref_AP_param]
+            var = model.cov_params().loc[ref_AP_param, ref_AP_param]
+        else:
+            inter_term = f"AP_position:C(Area)[T.{area}]"
+            coef_vec = np.zeros(len(model.params))
+            coef_vec[model.params.index.get_loc(ref_AP_param)] = 1
+            coef_vec[model.params.index.get_loc(inter_term)] = 1
+            # Wald test for the linear combination
+            wald: ContrastResults = model.t_test(coef_vec)
+            coef, pval, var = wald.effect[0], wald.pvalue, wald.sd**2
+
+        pval_df.loc[area, "p_value"] = pval
+        pval_df.loc[area, "OR"] = np.exp(coef)
+
+    pval_df["p_value_corrected"] = pval_df["p_value"] * len(visual_areas)
+
+    return pval_df, combined_area_AP_proj_dict, model
+
+
 def get_ML_position(sample_id: str, ml_dict: dict):
     """return pre-computed ML coordinate for sample (or None)."""
     return ml_dict.get(sample_id, np.nan)
@@ -988,7 +1099,7 @@ def area_is_main(
     barcode_matrix,
     IT_only=False,
     binary=False,
-    run_externally=False,
+    run_externally=True,
 ):
     """
     Function to output a matrix of neuron barcode distribution across areas, where we assume that the main area in each cubelet is where the barcode counts belong to
@@ -1091,7 +1202,7 @@ def area_is_main(
     row_range = bc_matrix.max(axis=1) - row_min
     row_range.replace(0, np.nan, inplace=True)
 
-    bc_matrix = bc_matrix.sub(row_min, axis=0)
+    # bc_matrix = bc_matrix.sub(row_min, axis=0)
     bc_matrix = bc_matrix.div(row_range, axis=0)
     if binary:
         bc_matrix = bc_matrix.astype(bool).astype(int)
@@ -1105,7 +1216,7 @@ def homog_across_area(
     shuffled,
     IT_only=False,
     binary=False,
-    run_externally=False,
+    run_externally=True,
 ):
     """
     Function to output a matrix of homogenous across areas, looking only at cortical samples
@@ -1229,7 +1340,7 @@ def homog_across_area(
         row_range = barcodes_homog.max(axis=1) - row_min
         row_range.replace(0, np.nan, inplace=True)
 
-        barcodes_homog = barcodes_homog.sub(row_min, axis=0)
+        # barcodes_homog = barcodes_homog.sub(row_min, axis=0)
         barcodes_homog = barcodes_homog.div(
             row_range, axis=0
         )  # subtract min and divide by range so max = 1
@@ -1561,3 +1672,32 @@ def compare_shuffle_approaches(mice, proj_path, all_mice_combined):
         np.log2(effect_dict["observed"] + 1e-3)
     ) - (np.log2(effect_dict["curveball_shuffled"] + 1e-3))
     return observed_over_shuff
+
+
+def perform_shuffle_motif_comp(neurons_proj, n_areas=10):
+    n_neurons = len(neurons_proj)
+    norm_shuff_barcodes = send_to_shuffle(barcodes=neurons_proj.astype(int))
+    curveball_shuff_barcodes = send_for_curveball_shuff(
+        barcodes=neurons_proj.astype(int)
+    )
+    barcode_dict = {}
+    titles = ["actual", "norm_shuffled", "curvball_shuffled"]
+    for i, barcode_df in enumerate(
+        [neurons_proj.astype(int), norm_shuff_barcodes, curveball_shuff_barcodes]
+    ):
+        motif_df = pd.DataFrame(np.zeros((n_areas, n_areas)))
+        for area_a in range(n_areas):
+            for area_b in range(n_areas):
+                if area_a == area_b:
+                    continue
+                observed = (
+                    np.count_nonzero(barcode_df[:, area_a] & barcode_df[:, area_b])
+                ) / n_neurons
+                expected = ((np.count_nonzero(barcode_df[:, area_a])) / n_neurons) * (
+                    (np.count_nonzero(barcode_df[:, area_b])) / n_neurons
+                )
+                motif_df.iloc[area_a, area_b] = np.log2((observed / expected) + 1e-3)
+        barcode_dict[titles[i]] = motif_df
+    norm_shuf_sub = barcode_dict["actual"] - barcode_dict["norm_shuffled"]
+    curve_shuf_sub = barcode_dict["actual"] - barcode_dict["curvball_shuffled"]
+    return norm_shuf_sub, curve_shuf_sub
